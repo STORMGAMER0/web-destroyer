@@ -1,0 +1,84 @@
+{"frames": {
+
+"Naruto 20_0.png":
+{
+	"frame": {"x":1,"y":1,"w":241,"h":722},
+	"rotated": false,
+	"trimmed": true,
+	"spriteSourceSize": {"x":0,"y":2,"w":241,"h":722},
+	"sourceSize": {"w":241,"h":724}
+},
+"Naruto 20_1.png":
+{
+	"frame": {"x":1,"y":1449,"w":241,"h":715},
+	"rotated": false,
+	"trimmed": true,
+	"spriteSourceSize": {"x":0,"y":5,"w":241,"h":715},
+	"sourceSize": {"w":241,"h":724}
+},
+"Naruto 20_2.png":
+{
+	"frame": {"x":1,"y":4306,"w":241,"h":705},
+	"rotated": false,
+	"trimmed": true,
+	"spriteSourceSize": {"x":0,"y":19,"w":241,"h":705},
+	"sourceSize": {"w":241,"h":724}
+},
+"Naruto 20_3.png":
+{
+	"frame": {"x":1,"y":3594,"w":241,"h":710},
+	"rotated": false,
+	"trimmed": true,
+	"spriteSourceSize": {"x":0,"y":8,"w":241,"h":710},
+	"sourceSize": {"w":241,"h":724}
+},
+"Naruto 20_4.png":
+{
+	"frame": {"x":1,"y":2166,"w":241,"h":712},
+	"rotated": false,
+	"trimmed": true,
+	"spriteSourceSize": {"x":0,"y":3,"w":241,"h":712},
+	"sourceSize": {"w":241,"h":724}
+},
+"Naruto 20_5.png":
+{
+	"frame": {"x":1,"y":725,"w":241,"h":722},
+	"rotated": false,
+	"trimmed": true,
+	"spriteSourceSize": {"x":0,"y":1,"w":241,"h":722},
+	"sourceSize": {"w":241,"h":724}
+},
+"Naruto 20_6.png":
+{
+	"frame": {"x":1,"y":5714,"w":236,"h":721},
+	"rotated": false,
+	"trimmed": true,
+	"spriteSourceSize": {"x":5,"y":1,"w":236,"h":721},
+	"sourceSize": {"w":241,"h":724}
+},
+"Naruto 20_7.png":
+{
+	"frame": {"x":1,"y":2880,"w":241,"h":712},
+	"rotated": false,
+	"trimmed": true,
+	"spriteSourceSize": {"x":0,"y":5,"w":241,"h":712},
+	"sourceSize": {"w":241,"h":724}
+},
+"Naruto 20_8.png":
+{
+	"frame": {"x":1,"y":5013,"w":241,"h":699},
+	"rotated": false,
+	"trimmed": true,
+	"spriteSourceSize": {"x":0,"y":1,"w":241,"h":699},
+	"sourceSize": {"w":241,"h":724}
+}},
+"meta": {
+	"app": "https://www.codeandweb.com/texturepacker",
+	"version": "1.0",
+	"image": "naruto_spritesheet.png",
+	"format": "RGBA8888",
+	"size": {"w":243,"h":6436},
+	"scale": "1",
+	"smartupdate": "$TexturePacker:SmartUpdate:d3f6b6ee314ae8ec2e0feae02e6908b4:13d4466343684661bcd43f93a6d4e0d7:7a79fa5e01658ff42bba492e52ec0686$"
+}
+}
