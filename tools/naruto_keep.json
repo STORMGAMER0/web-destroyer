@@ -21,5 +21,14 @@
  "kb_explode": 3448,
  "charge": 7400,
  "shock": 7000,
- "shock2": 7001
+ "shock2": 7001,
+ "tw_body": 3900,
+ "tw_form": 3901,
+ "tw_tails": 3902,
+ "tw_wind": 3930,
+ "lv_crust": 4050,
+ "lv_core": 4051,
+ "lv_wind": 3261,
+ "lv_dome": 3270,
+ "lv_ring": 3272
 }

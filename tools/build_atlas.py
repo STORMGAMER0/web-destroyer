@@ -1,12 +1,14 @@
 # Build trimmed web sprite atlas from extracted SFF sprites + AIR animations.
 # usage: build.py <char_dir> <sff_out_dir> <keep.json> <out_dir>
-import json,re,sys,os
+import json,re,sys,os,io
 from PIL import Image,ImageChops,ImageMath
 char,src,keepf,out=sys.argv[1:5]
 keep=json.load(open(keepf))
-BAKE={351:.11,3254:.5,3260:.3,9018:.8,30555:.19}   # explod scale the game draws these at
-DECIMATE={3254,9020}                                # 1-tick effects: keep every 2nd frame
-LOOP={'idle','run','rs_spin','rs_core','rs_wind','tbb_ball','tbb_glow'}
+# explod scale the game draws these at
+BAKE={351:.11,3254:.5,3260:.3,9018:.8,30555:.19,
+      3902:.7,3930:.33,4050:.15,4051:.61,3261:.41,3270:.8,3272:.6}
+DECIMATE={3254:2,9020:2,4051:2,3270:3,3272:2}       # long effects: keep every Nth frame
+LOOP={'idle','run','rs_spin','rs_core','rs_wind','tbb_ball','tbb_glow','tw_wind','lv_crust','lv_core','lv_wind'}
 MAX=2048;PAD=2
 air={};cur=None
 for line in open(os.path.join(char,'Naruto.air'),encoding='latin-1'):
@@ -40,24 +42,34 @@ def load(key,scale,add):
     return sk
 for name,a in keep.items():
     fr=[f for f in air[a] if f['g']>=0 and f"{f['g']}_{f['i']}" in idx]
-    if a in DECIMATE: fr=[dict(f,t=f['t']*2) for f in fr[::2]]
+    if a in DECIMATE: n=DECIMATE[a]; fr=[dict(f,t=f['t']*n) for f in fr[::n]]
     s=BAKE.get(a,1);add=any(f['add'] for f in fr)
     anims[name]={'loop':name in LOOP,'blend':'add' if add else None,
         'frames':[{'s':load(f"{f['g']}_{f['i']}",s,f['add']),'t':max(f['t'],1),'x':round(f['x']*s),'y':round(f['y']*s),'flip':f['flip']} for f in fr]}
-# shelf pack, tallest first, into MAX x MAX sheets
-order=sorted(sprites,key=lambda k:-sprites[k]['img'].height)
-sheets=[];x=y=rowh=0
-for k in order:
-    im=sprites[k]['img'];w,h=im.width+PAD,im.height+PAD
-    if not sheets or x+w>MAX: x=0;y+=rowh;rowh=0
-    if not sheets or y+h>MAX: sheets.append([]);x=y=rowh=0
-    sprites[k].update(sheet=len(sheets)-1,x=x,y=y);sheets[-1].append(k);x+=w;rowh=max(rowh,h)
+# Naruto's own pixel-art frames stay lossless; big painted effects use lossy WebP (much smaller)
+PIXEL={'idle','run','jump_up','jump_peak','jump_down','rs_throw','tbb_body','tw_body'}
+pixel_keys={f['s'] for n in PIXEL if n in anims for f in anims[n]['frames']}
+# shelf pack, tallest first, into MAX x MAX sheets (pixel-art and effects packed separately)
+sheets=[];lossless=[]
+for group,is_pixel in ((pixel_keys,True),(set(sprites)-pixel_keys,False)):
+    order=sorted(group,key=lambda k:-sprites[k]['img'].height)
+    first=True;x=y=rowh=0
+    for k in order:
+        im=sprites[k]['img'];w,h=im.width+PAD,im.height+PAD
+        if first or x+w>MAX: x=0;y+=rowh;rowh=0
+        if first or y+h>MAX: sheets.append([]);lossless.append(is_pixel);x=y=rowh=0;first=False
+        sprites[k].update(sheet=len(sheets)-1,x=x,y=y);sheets[-1].append(k);x+=w;rowh=max(rowh,h)
 os.makedirs(out,exist_ok=True);files=[]
 for n,keys in enumerate(sheets):
     W=max(sprites[k]['x']+sprites[k]['img'].width for k in keys);H=max(sprites[k]['y']+sprites[k]['img'].height for k in keys)
     can=Image.new('RGBA',(W,H))
     for k in keys: can.paste(sprites[k]['img'],(sprites[k]['x'],sprites[k]['y']))
-    fn=f'sheet{n}.webp';can.save(os.path.join(out,fn),lossless=True,method=6);files.append(fn)
+    fn=f'sheet{n}.webp'
+    can.save(os.path.join(out,fn),lossless=True,method=6)
+    if not lossless[n]:  # effects: use lossy only when it actually comes out smaller
+        buf=io.BytesIO();can.save(buf,'WEBP',quality=88,alpha_quality=90,method=6)
+        if buf.tell()<os.path.getsize(os.path.join(out,fn)): open(os.path.join(out,fn),'wb').write(buf.getvalue())
+    files.append(fn)
     print(fn,W,H,os.path.getsize(os.path.join(out,fn))//1024,'KB')
 data={'sheets':files,
       'sprites':{k:{'sheet':v['sheet'],'x':v['x'],'y':v['y'],'w':v['img'].width,'h':v['img'].height,'ax':v['ax'],'ay':v['ay']} for k,v in sprites.items()},

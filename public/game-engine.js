@@ -64,8 +64,8 @@
     // ==========================================
     // 3. ANIMATION PLAYER
     // ==========================================
-    function createAnim(name) {
-        return { name, index: 0, tick: 0, done: false };
+    function createAnim(name, startIndex = 0) {
+        return { name, index: startIndex, tick: 0, done: false };
     }
 
     // Advance one tick. Non-looping anims stop on their last frame with done = true.
@@ -134,7 +134,9 @@
     const JUTSU = [
         { key: '1', name: 'Rasenshuriken', cast: castRasenshuriken },
         { key: '2', name: 'Tailed Beast Bomb', cast: castTailedBeastBomb },
-        { key: '3', name: 'Kurama Bijuudama', cast: castKuramaBijuudama }
+        { key: '3', name: 'Kurama Bijuudama', cast: castKuramaBijuudama },
+        { key: '4', name: 'Twin Rasenshuriken', cast: castTwinRasenshuriken },
+        { key: '5', name: 'Lava Rasenshuriken', cast: castLavaRasenshuriken }
     ];
     let selectedJutsu = 0;
 
@@ -294,6 +296,69 @@
         after(85, endCast);
     }
 
+    // [4] Twin Rasenshuriken: Naruto takes his nine-tails chakra form and fires a giant
+    // Rasenshuriken alongside a Tailed Beast Bomb wrapped in purple wind.
+    function castTwinRasenshuriken(tx, ty) {
+        faceTarget(tx);
+        startCast('tw_form');
+        player.anim = createAnim('tw_form', 2); // skip the crouch/leap, start at the chakra form
+        const facing = player.direction;
+        const baseX = player.x;
+        const baseY = player.y;
+
+        spawnEffect('tbb_pillar', baseX, baseY, { behind: true });
+        spawnEffect('tbb_sparks', baseX, baseY, { behind: true });
+        spawnEffect('tw_tails', baseX - 10 * facing, baseY - 150, { facing, behind: true, life: 100, fade: 20 });
+
+        // tw_form reaches its held pose after 30 + 5 + 5 ticks
+        after(40, () => {
+            const startX = baseX + 60 * facing;
+            const startY = baseY - 230;
+            launch(startX, startY - 40, tx, ty, 8, [
+                { name: 'rs_core', scale: 1.4 },
+                { name: 'rs_spin', scale: 1.8 },
+            ], (x, y) => {
+                spawnEffect('rs_flash', x, y, { scale: 0.8 });
+                spawnEffect('rs_explode', x, y, { scale: 2.2 });
+                spawnEffect('shock2', x, y, { scale: 2 });
+                createExplosion(x, y, { radius: 240, colors: ['#e3f6ff', '#4fc3f7', '#b388ff'] });
+            });
+            launch(startX, startY + 40, tx, ty, 8, [
+                { name: 'tbb_glow', scale: 3, grow: true },
+                { name: 'tbb_ball', scale: 0.4, grow: true },
+                { name: 'tw_wind', scale: 1 },
+            ], (x, y) => {
+                spawnEffect('shock', x, y, { scale: 3 });
+                createExplosion(x, y, { radius: 140, colors: ['#b388ff', '#7c4dff'] });
+            });
+        });
+        after(100, endCast);
+    }
+
+    // [5] Lava Rasenshuriken: a molten Rasenshuriken that bursts into a red-hot dome and fire ring.
+    function castLavaRasenshuriken(tx, ty) {
+        faceTarget(tx);
+        startCast('rs_throw');
+        spawnEffect('charge', player.x, player.y - 60, { life: 30 });
+
+        // Same throw as the Rasenshuriken: release on rs_throw frame 3
+        after(33, () => {
+            const startX = player.x + 20 * player.direction;
+            const startY = player.y - 55;
+            launch(startX, startY, tx, ty, 8, [
+                { name: 'lv_crust', scale: 0.9 },
+                { name: 'lv_core', scale: 0.9 },
+                { name: 'lv_wind', scale: 0.8 },
+            ], (x, y) => {
+                spawnEffect('lv_ring', x, y, { centered: true, scale: 1.2 });
+                spawnEffect('lv_dome', x, y, { scale: 1.1 });
+                spawnEffect('tbb_explode', x, y, { centered: true, scale: 0.45, life: 30, fade: 20 });
+                createExplosion(x, y, { radius: 200, colors: ['#ff5722', '#ffab00', '#ffeb3b'] });
+            });
+        });
+        after(70, endCast);
+    }
+
     // ==========================================
     // 6. DESTRUCTION & PARTICLES
     // ==========================================
@@ -438,7 +503,8 @@
         ctx.restore();
     }
 
-    function update() {
+    // One game tick. MUGEN timing assumes 60 ticks per second.
+    function tick() {
         // Scheduled jutsu steps
         for (let i = timers.length - 1; i >= 0; i--) {
             if (--timers[i].ticks <= 0) {
@@ -483,8 +549,9 @@
             pt.alpha -= pt.decay;
             if (pt.alpha <= 0) particles.splice(i, 1);
         }
+    }
 
-        // ---- Render ----
+    function render() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         drawEffects(true);
@@ -510,8 +577,23 @@
 
         drawHud();
         drawCrosshair();
-
-        requestAnimationFrame(update);
     }
-    update();
+
+    // Run game ticks at a fixed 60 per second whatever the display's frame rate
+    // (120/144 Hz screens, or slow frames during big jutsu), then draw once.
+    const TICK_MS = 1000 / 60;
+    let lastTime = performance.now();
+    let pending = 0;
+
+    function frame(now) {
+        pending += Math.min(now - lastTime, 250); // don't fast-forward after a hidden tab
+        lastTime = now;
+        while (pending >= TICK_MS) {
+            tick();
+            pending -= TICK_MS;
+        }
+        render();
+        requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
 })();
