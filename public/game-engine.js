@@ -1,5 +1,5 @@
 (async function() {
-    console.log("⚡ M.U.G.E.N Void Engine Initialized! Jitter Fix Applied...");
+    console.log("⚡ M.U.G.E.N Void Engine Initialized! Ranged Jutsu Loaded...");
 
     // ==========================================
     // 1. ENGINE, CANVAS & VOID SETUP
@@ -11,8 +11,8 @@
     canvas.style.left = '0';
     canvas.style.width = '100vw';
     canvas.style.height = '100vh';
-    canvas.style.zIndex = '999999'; 
-    canvas.style.pointerEvents = 'none'; 
+    canvas.style.zIndex = '999999';
+    canvas.style.pointerEvents = 'none';
     document.body.appendChild(canvas);
 
     const voidOverlay = document.createElement('div');
@@ -21,8 +21,8 @@
     voidOverlay.style.left = '0';
     voidOverlay.style.width = '100vw';
     voidOverlay.style.height = '100vh';
-    voidOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0)'; 
-    voidOverlay.style.zIndex = '999998'; 
+    voidOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0)';
+    voidOverlay.style.zIndex = '999998';
     voidOverlay.style.pointerEvents = 'none';
     document.body.appendChild(voidOverlay);
 
@@ -39,15 +39,22 @@
     // ==========================================
     // 2. ASSET LOADER
     // ==========================================
-    let spriteData = null;
-    const spriteSheet = new Image();
+    // naruto.json is built by tools/build_atlas.py straight from the MUGEN
+    // character files: sprites keep their real axis (feet / center point) and
+    // anims keep MUGEN frame timing (ticks at 60 per second).
+    const ASSET_DIR = '/characters/naruto/';
+    let charData = null;
+    let sheets = [];
 
     try {
-        const response = await fetch('/naruto_data.json');
-        spriteData = await response.json();
-        
-        spriteSheet.src = '/naruto_spritesheet.png';
-        await new Promise((resolve) => spriteSheet.onload = resolve);
+        const response = await fetch(ASSET_DIR + 'naruto.json');
+        charData = await response.json();
+        sheets = await Promise.all(charData.sheets.map(file => new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = ASSET_DIR + file;
+        })));
         console.log("✅ Naruto assets successfully compiled!");
     } catch (err) {
         console.error("❌ Asset loading failed:", err);
@@ -55,15 +62,63 @@
     }
 
     // ==========================================
-    // 3. STATE VECTORS & MOUSE SYSTEM
+    // 3. ANIMATION PLAYER
     // ==========================================
-    const mouse = { x: 0, y: 0, clicked: false };
+    function createAnim(name) {
+        return { name, index: 0, tick: 0, done: false };
+    }
+
+    // Advance one tick. Non-looping anims stop on their last frame with done = true.
+    function stepAnim(state) {
+        const anim = charData.anims[state.name];
+        if (state.done) return;
+        state.tick++;
+        if (state.tick >= anim.frames[state.index].t) {
+            state.tick = 0;
+            state.index++;
+            if (state.index >= anim.frames.length) {
+                if (anim.loop) {
+                    state.index = 0;
+                } else {
+                    state.index = anim.frames.length - 1;
+                    state.done = true;
+                }
+            }
+        }
+    }
+
+    // Draw the current frame with its axis at (x, y). facing -1 mirrors around the axis.
+    // centered ignores the axis and centers the sprite on (x, y) instead.
+    function drawAnim(state, x, y, facing = 1, scale = 1, alpha = 1, centered = false) {
+        const anim = charData.anims[state.name];
+        const frame = anim.frames[state.index];
+        const spr = charData.sprites[frame.s];
+        const flipH = (facing === -1) !== frame.flip.includes('H');
+        const flipV = frame.flip.includes('V');
+        const ax = centered ? spr.w / 2 : spr.ax;
+        const ay = centered ? spr.h / 2 : spr.ay;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        if (anim.blend === 'add') ctx.globalCompositeOperation = 'lighter';
+        ctx.translate(x + frame.x * facing * scale, y + frame.y * scale);
+        ctx.scale(flipH ? -scale : scale, flipV ? -scale : scale);
+        ctx.drawImage(sheets[spr.sheet], spr.x, spr.y, spr.w, spr.h, -ax, -ay, spr.w, spr.h);
+        ctx.restore();
+    }
+
+    // ==========================================
+    // 4. STATE VECTORS & INPUT
+    // ==========================================
+    const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
     const particles = [];
     const projectiles = [];
+    const effects = [];     // one-shot or timed animations drawn in the world
+    const timers = [];      // scheduled jutsu steps, counted in ticks
 
     const player = {
         x: 100,
-        y: window.innerHeight - 50, // Floor baseline coordinate tracking
+        y: window.innerHeight - 20, // feet (sprite axis) position
         vx: 0,
         vy: 0,
         speed: 6,
@@ -71,14 +126,24 @@
         jumpForce: -14,
         isGrounded: false,
         direction: 1,
-        state: 'idle',
-        currentFrameIndex: 0,
-        frameTimer: 0,
-        frameSpeed: 5
+        hidden: false,       // true while Kurama stands in for Naruto
+        casting: false,
+        anim: createAnim('idle')
     };
 
+    const JUTSU = [
+        { key: '1', name: 'Rasenshuriken', cast: castRasenshuriken },
+        { key: '2', name: 'Tailed Beast Bomb', cast: castTailedBeastBomb },
+        { key: '3', name: 'Kurama Bijuudama', cast: castKuramaBijuudama }
+    ];
+    let selectedJutsu = 0;
+
     const keys = {};
-    window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+    window.addEventListener('keydown', e => {
+        keys[e.key.toLowerCase()] = true;
+        const slot = JUTSU.findIndex(j => j.key === e.key);
+        if (slot !== -1) selectedJutsu = slot;
+    });
     window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
     window.addEventListener('mousemove', e => {
@@ -87,68 +152,152 @@
     });
 
     window.addEventListener('mousedown', e => {
-        if (e.button === 0) { 
-            fireRasenshuriken(e.clientX, e.clientY);
+        if (e.button === 0 && !player.casting) {
+            JUTSU[selectedJutsu].cast(e.clientX, e.clientY);
         }
     });
 
-    // ==========================================
-    // 4. ANIMATION REGISTRATION
-    // ==========================================
-    const allFrameNames = Object.keys(spriteData.frames);
-    
-    function filterMugenGroup(groupNumber) {
-        return allFrameNames
-            .map(name => ({ name, match: name.match(/\s(\d+)_(\d+)\.png$/) }))
-            .filter(({ match }) => match && Number(match[1]) === groupNumber)
-            .sort((a, b) => Number(a.match[2]) - Number(b.match[2]))
-            .map(({ name }) => name);
+    // Clicks are attacks: stop them from following links or pressing page buttons
+    window.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+    }, true);
+
+    function setPlayerAnim(name) {
+        if (player.anim.name !== name) player.anim = createAnim(name);
     }
 
-    const animations = {
-        idle: filterMugenGroup(0),     
-        walk: filterMugenGroup(20),    
-        attack: filterMugenGroup(200), 
-        special: filterMugenGroup(350) 
-    };
-
-    if (animations.idle.length === 0 && animations.walk.length > 0) {
-        animations.idle = [animations.walk[0]];
+    function after(ticks, fn) {
+        timers.push({ ticks, fn });
     }
 
-    if (animations.special.length === 0) {
-        animations.special = filterMugenGroup(360).length > 0 ? filterMugenGroup(360) : allFrameNames.slice(70, 90);
+    function spawnEffect(name, x, y, opts = {}) {
+        const fx = {
+            anim: createAnim(name), x, y,
+            facing: opts.facing || 1,
+            scale: opts.scale || 1,
+            centered: !!opts.centered,
+            behind: !!opts.behind,       // draw behind Naruto
+            life: opts.life || null,     // ticks; null = until a non-looping anim ends
+            fade: opts.fade || 0,        // ticks of fade-out at the end of life
+            age: 0
+        };
+        effects.push(fx);
+        return fx;
     }
 
     // ==========================================
-    // 5. PROJECTILE & PARTICLE ALGORITHMS
+    // 5. RANGED JUTSU
     // ==========================================
-    function fireRasenshuriken(targetX, targetY) {
-        player.state = 'special';
-        player.currentFrameIndex = 0;
+    function faceTarget(targetX) {
+        player.direction = targetX >= player.x ? 1 : -1;
+    }
+
+    function startCast(bodyAnim) {
+        player.casting = true;
         player.vx = 0;
-        player.direction = targetX > player.x ? 1 : -1;
+        setPlayerAnim(bodyAnim);
+    }
 
-        const startX = player.x + (player.direction === 1 ? 30 : -30);
-        const startY = player.y - 40; 
-        
-        const angle = Math.atan2(targetY - startY, targetX - startX);
-        const projectileSpeed = 12;
+    function endCast() {
+        player.casting = false;
+        player.hidden = false;
+    }
 
+    function launch(x, y, tx, ty, speed, layers, onHit) {
+        const angle = Math.atan2(ty - y, tx - x);
         projectiles.push({
-            x: startX,
-            y: startY,
-            tx: targetX,
-            ty: targetY,
-            vx: Math.cos(angle) * projectileSpeed,
-            vy: Math.sin(angle) * projectileSpeed,
-            rotation: 0,
-            radius: 18,
-            active: true
+            x, y, tx, ty,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            layers: layers.map(l => ({ ...l, anim: createAnim(l.name) })),
+            onHit,
+            age: 0
         });
     }
 
-    function createExplosion(x, y) {
+    // [1] Rasenshuriken: Naruto raises it overhead and throws; it explodes into a wind dome.
+    function castRasenshuriken(tx, ty) {
+        faceTarget(tx);
+        startCast('rs_throw');
+        spawnEffect('charge', player.x, player.y - 60, { life: 30 });
+
+        // rs_throw frame 3 (after 5 + 25 + 3 ticks) is the release
+        after(33, () => {
+            const startX = player.x + 20 * player.direction;
+            const startY = player.y - 55;
+            launch(startX, startY, tx, ty, 9, [
+                { name: 'rs_core', scale: 0.8 },
+                { name: 'rs_spin', scale: 0.9 },
+            ], (x, y) => {
+                spawnEffect('rs_flash', x, y, { scale: 0.5 });
+                spawnEffect('rs_explode', x, y, { scale: 1.3 });
+                createExplosion(x, y, { radius: 120, colors: ['#e3f6ff', '#4fc3f7', '#ffffff'] });
+            });
+        });
+        after(70, endCast);
+    }
+
+    // [2] Tailed Beast Bomb: Kurama rises behind Naruto in a chakra pillar and fires the bomb.
+    function castTailedBeastBomb(tx, ty) {
+        faceTarget(tx);
+        startCast('tbb_body');
+        const facing = player.direction;
+        const baseX = player.x;
+        const baseY = player.y;
+
+        spawnEffect('tbb_pillar', baseX, baseY, { behind: true });
+        spawnEffect('tbb_sparks', baseX, baseY, { behind: true });
+        spawnEffect('tbb_fox', baseX - 120 * facing, baseY, { facing, behind: true, life: 100, fade: 20 });
+
+        after(45, () => {
+            const mouthX = baseX - 120 * facing + 220 * facing;
+            const mouthY = baseY - 170;
+            spawnEffect('charge', mouthX, mouthY, { scale: 1.6, life: 30 });
+            launch(mouthX, mouthY, tx, ty, 7, [
+                { name: 'tbb_glow', scale: 3, grow: true },
+                { name: 'tbb_ball', scale: 0.35, grow: true },
+            ], (x, y) => {
+                spawnEffect('tbb_explode', x, y, { centered: true, scale: 0.6, life: 40, fade: 25 });
+                spawnEffect('shock2', x, y, { scale: 1.5 });
+                spawnEffect('shock', x, y, { scale: 3 });
+                createExplosion(x, y, { radius: 180, colors: ['#b388ff', '#7c4dff', '#ff9800'] });
+            });
+        });
+        after(80, endCast);
+    }
+
+    // [3] Kurama Bijuudama: Naruto becomes Kurama, who fires a fast bomb that bursts in gold.
+    function castKuramaBijuudama(tx, ty) {
+        faceTarget(tx);
+        startCast('idle');
+        player.hidden = true;
+        const facing = player.direction;
+        const baseX = player.x;
+        const baseY = player.y;
+
+        spawnEffect('charge', baseX, baseY - 40, { scale: 2, life: 40 });
+        spawnEffect('kb_fox', baseX, baseY, { facing, life: 85, fade: 15 });
+
+        after(40, () => {
+            const mouthX = baseX + 220 * facing;
+            const mouthY = baseY - 170;
+            launch(mouthX, mouthY, tx, ty, 12, [
+                { name: 'tbb_glow', scale: 2 },
+                { name: 'tbb_ball', scale: 0.25 },
+            ], (x, y) => {
+                spawnEffect('kb_explode', x, y, { centered: true });
+                spawnEffect('shock', x, y, { scale: 2.5 });
+                createExplosion(x, y, { radius: 150, colors: ['#ffd54f', '#ff9800', '#ffffff'] });
+            });
+        });
+        after(85, endCast);
+    }
+
+    // ==========================================
+    // 6. DESTRUCTION & PARTICLES
+    // ==========================================
+    function createExplosion(x, y, { radius = 60, colors = ['#4fc3f7', '#ffffff'] } = {}) {
         const sparkCount = 45;
         for (let i = 0; i < sparkCount; i++) {
             const angle = Math.random() * Math.PI * 2;
@@ -159,31 +308,39 @@
                 vx: Math.cos(angle) * speed,
                 vy: Math.sin(angle) * speed,
                 radius: Math.random() * 4 + 2,
-                color: Math.random() > 0.3 ? '#4fc3f7' : '#ffffff', 
+                color: colors[Math.floor(Math.random() * colors.length)],
                 alpha: 1,
                 decay: Math.random() * 0.03 + 0.01
             });
         }
 
-        canvas.style.pointerEvents = 'auto';
-        const blastRadius = 60;
-        const scanOffsets = [
-            {dx: 0, dy: 0}, {dx: -40, dy: 0}, {dx: 40, dy: 0},
-            {dx: 0, dy: -40}, {dx: 0, dy: 40}, {dx: -30, dy: -30}, {dx: 30, dy: 30}
-        ];
-
-        scanOffsets.forEach(offset => {
-            const hitElement = document.elementFromPoint(x + offset.dx, y + offset.dy);
-            if (hitElement && hitElement !== canvas && hitElement !== voidOverlay && hitElement !== document.body && hitElement !== document.documentElement) {
-                hitElement.style.transition = 'transform 0.5s ease-out, opacity 0.4s ease';
-                hitElement.style.transform = `scale(0) rotate(${Math.random() * 100 - 50}deg) translate(${offset.dx * 2}px, ${offset.dy * 2}px)`;
-                hitElement.style.opacity = '0';
-                setTimeout(() => { hitElement.style.display = 'none'; }, 450);
+        // Sample the blast area in rings. The canvas and overlay have pointer-events: none,
+        // so elementFromPoint sees straight through them to the page underneath.
+        const viewportArea = window.innerWidth * window.innerHeight;
+        const hit = new Set();
+        for (const ring of [0, 0.5, 1]) {
+            const steps = ring === 0 ? 1 : 8;
+            for (let i = 0; i < steps; i++) {
+                const a = (i / steps) * Math.PI * 2;
+                const el = document.elementFromPoint(x + Math.cos(a) * radius * ring, y + Math.sin(a) * radius * ring);
+                if (!el || el === document.body || el === document.documentElement) continue;
+                // Skip page-sized wrappers so one blast doesn't wipe out the whole site
+                const rect = el.getBoundingClientRect();
+                if (rect.width * rect.height > viewportArea * 0.5) continue;
+                hit.add(el);
             }
+        }
+
+        hit.forEach(hitElement => {
+            const dx = Math.random() * 200 - 100;
+            const dy = Math.random() * 200 - 100;
+            hitElement.style.transition = 'transform 0.5s ease-out, opacity 0.4s ease';
+            hitElement.style.transform = `scale(0) rotate(${Math.random() * 100 - 50}deg) translate(${dx}px, ${dy}px)`;
+            hitElement.style.opacity = '0';
+            setTimeout(() => { hitElement.style.visibility = 'hidden'; }, 450);
         });
 
-        canvas.style.pointerEvents = 'none';
-
+        const blastRadius = Math.round(radius * 0.6);
         voidOverlay.style.backgroundColor = 'rgba(10, 10, 10, 0.96)';
         const currentClip = voidOverlay.style.clipPath || '';
         if (!currentClip.includes('polygon') && !currentClip.includes('path')) {
@@ -194,23 +351,17 @@
     }
 
     // ==========================================
-    // 6. CORE ENGINE UPDATE & RENDER LOOP
+    // 7. CORE ENGINE UPDATE & RENDER LOOP
     // ==========================================
-    function update() {
-        let lastState = player.state;
-
-        if (player.state !== 'attack' && player.state !== 'special') {
-            player.state = 'idle';
+    function updatePlayer() {
+        if (!player.casting) {
+            player.vx = 0;
             if (keys['a'] || keys['arrowleft']) {
                 player.vx = -player.speed;
                 player.direction = -1;
-                player.state = 'walk';
             } else if (keys['d'] || keys['arrowright']) {
                 player.vx = player.speed;
                 player.direction = 1;
-                player.state = 'walk';
-            } else {
-                player.vx = 0;
             }
 
             if ((keys['w'] || keys['arrowup'] || keys[' ']) && player.isGrounded) {
@@ -219,145 +370,148 @@
             }
         }
 
-        if (player.state !== lastState) {
-            player.currentFrameIndex = 0;
-            player.frameTimer = 0;
-        }
-
         player.vy += player.gravity;
         player.x += player.vx;
         player.y += player.vy;
 
-        // Ground baseline boundary rules
-        const floorBaseline = window.innerHeight - 50; 
+        const floorBaseline = window.innerHeight - 20;
         if (player.y >= floorBaseline) {
             player.y = floorBaseline;
             player.vy = 0;
             player.isGrounded = true;
         }
 
-        // player.x is the feet center, so keep half a body width from each edge
-        if (player.x < 40) player.x = 40;
-        if (player.x > window.innerWidth - 40) player.x = window.innerWidth - 40;
+        // player.x is the feet axis, so keep half a body width from each edge
+        if (player.x < 30) player.x = 30;
+        if (player.x > window.innerWidth - 30) player.x = window.innerWidth - 30;
 
-        const currentAnim = animations[player.state] || animations.idle;
-        
-        if (currentAnim.length > 0) {
-            player.frameTimer++;
-            if (player.frameTimer >= player.frameSpeed) {
-                player.frameTimer = 0;
-                player.currentFrameIndex++;
-                if (player.currentFrameIndex >= currentAnim.length) {
-                    player.currentFrameIndex = 0;
-                    if (player.state === 'special' || player.state === 'attack') {
-                        player.state = 'idle'; 
-                    }
-                }
+        if (!player.casting) {
+            if (!player.isGrounded) setPlayerAnim(player.vy < 0 ? 'jump_up' : 'jump_down');
+            else if (player.vx !== 0) setPlayerAnim('run');
+            else setPlayerAnim('idle');
+        }
+        stepAnim(player.anim);
+    }
+
+    function drawEffects(behind) {
+        for (const fx of effects) {
+            if (fx.behind !== behind) continue;
+            let alpha = 1;
+            if (fx.life && fx.fade && fx.age > fx.life - fx.fade) {
+                alpha = Math.max(0, (fx.life - fx.age) / fx.fade);
             }
-            if (player.currentFrameIndex >= currentAnim.length) {
-                player.currentFrameIndex = 0;
+            drawAnim(fx.anim, fx.x, fx.y, fx.facing, fx.scale, alpha, fx.centered);
+        }
+    }
+
+    function drawHud() {
+        ctx.save();
+        ctx.font = 'bold 13px system-ui, sans-serif';
+        ctx.textBaseline = 'top';
+        JUTSU.forEach((j, i) => {
+            const active = i === selectedJutsu;
+            const label = `[${j.key}] ${j.name}`;
+            const w = ctx.measureText(label).width + 16;
+            const y = 12 + i * 26;
+            ctx.fillStyle = active ? 'rgba(255, 152, 0, 0.9)' : 'rgba(0, 0, 0, 0.55)';
+            ctx.fillRect(12, y, w, 22);
+            ctx.fillStyle = active ? '#000' : '#fff';
+            ctx.fillText(label, 20, y + 4);
+        });
+        ctx.restore();
+    }
+
+    function drawCrosshair() {
+        ctx.save();
+        ctx.translate(mouse.x, mouse.y);
+        ctx.strokeStyle = '#4fc3f7';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 10, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-15, 0); ctx.lineTo(-4, 0);
+        ctx.moveTo(4, 0); ctx.lineTo(15, 0);
+        ctx.moveTo(0, -15); ctx.lineTo(0, -4);
+        ctx.moveTo(0, 4); ctx.lineTo(0, 15);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    function update() {
+        // Scheduled jutsu steps
+        for (let i = timers.length - 1; i >= 0; i--) {
+            if (--timers[i].ticks <= 0) {
+                const fn = timers[i].fn;
+                timers.splice(i, 1);
+                fn();
             }
-        } else {
-            player.currentFrameIndex = 0;
         }
 
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        updatePlayer();
 
-        // Render projectles
+        // Effects
+        for (let i = effects.length - 1; i >= 0; i--) {
+            const fx = effects[i];
+            fx.age++;
+            stepAnim(fx.anim);
+            const expired = fx.life ? fx.age >= fx.life : fx.anim.done;
+            if (expired) effects.splice(i, 1);
+        }
+
+        // Projectiles
         for (let i = projectiles.length - 1; i >= 0; i--) {
             const p = projectiles[i];
             p.x += p.vx;
             p.y += p.vy;
-            p.rotation += 0.4; 
+            p.age++;
+            p.layers.forEach(l => stepAnim(l.anim));
 
+            const dist = Math.hypot(p.tx - p.x, p.ty - p.y);
+            const speed = Math.hypot(p.vx, p.vy);
+            if (dist <= speed || p.x < -200 || p.x > canvas.width + 200 || p.y < -200 || p.y > canvas.height + 200) {
+                projectiles.splice(i, 1);
+                p.onHit(p.tx, p.ty);
+            }
+        }
+
+        // Particles
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const pt = particles[i];
+            pt.x += pt.vx;
+            pt.y += pt.vy;
+            pt.alpha -= pt.decay;
+            if (pt.alpha <= 0) particles.splice(i, 1);
+        }
+
+        // ---- Render ----
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        drawEffects(true);
+        if (!player.hidden) drawAnim(player.anim, player.x, player.y, player.direction);
+        drawEffects(false);
+
+        for (const p of projectiles) {
+            const grow = Math.min(1, 0.4 + p.age / 60);
+            for (const l of p.layers) {
+                drawAnim(l.anim, p.x, p.y, 1, l.scale * (l.grow ? grow : 1), 1, true);
+            }
+        }
+
+        for (const pt of particles) {
             ctx.save();
-            ctx.translate(p.x, p.y);
-            ctx.rotate(p.rotation);
+            ctx.globalAlpha = Math.max(0, pt.alpha);
             ctx.beginPath();
-            ctx.arc(0, 0, p.radius, 0, Math.PI * 2);
-ctx.fillStyle = 'rgba(79, 195, 247, 0.4)';
-ctx.fill();
-ctx.beginPath();
-ctx.arc(0, 0, p.radius * 0.5, 0, Math.PI * 2);
-ctx.fillStyle = '#ffffff';
-ctx.fill();
-ctx.restore();
-const dist = Math.hypot(p.tx - p.x, p.ty - p.y);
-if (dist < 15 || p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) {
-createExplosion(p.x, p.y);
-projectiles.splice(i, 1);
-}
-}
-// Render particle tracks
-for (let i = particles.length - 1; i >= 0; i--) {
-const pt = particles[i];
-pt.x += pt.vx;
-pt.y += pt.vy;
-pt.alpha -= pt.decay;
-ctx.save();
-ctx.globalAlpha = pt.alpha;
-ctx.beginPath();
-ctx.arc(pt.x, pt.y, pt.radius, 0, Math.PI * 2);
-ctx.fillStyle = pt.color;
-ctx.fill();
-ctx.restore();
-if (pt.alpha <= 0) particles.splice(i, 1);
-}
-// Crosshair handler overlay
-ctx.save();
-ctx.translate(mouse.x, mouse.y);
-ctx.strokeStyle = '#4fc3f7';
-ctx.lineWidth = 2;
-ctx.beginPath();
-ctx.arc(0, 0, 10, 0, Math.PI * 2);
-ctx.stroke();
-ctx.beginPath();
-ctx.moveTo(-15, 0); ctx.lineTo(-4, 0);
-ctx.moveTo(4, 0); ctx.lineTo(15, 0);
-ctx.moveTo(0, -15); ctx.lineTo(0, -4);
-ctx.moveTo(0, 4); ctx.lineTo(0, 15);
-ctx.stroke();
-ctx.restore();
-let frameName = currentAnim[player.currentFrameIndex];
-if (!frameName && animations.walk && animations.walk.length > 0) {
-frameName = animations.walk[0];
-}
-if (!frameName) {
-frameName = allFrameNames[0];
-}
-if (frameName && spriteData.frames[frameName]) {
-const frameInfo = spriteData.frames[frameName];
-const frameData = frameInfo.frame;
-ctx.save();
-// JITTER FIX: frame.w/h is already the upright size, even for rotated frames,
-// so never swap them. Anchor at bottom-center (feet) so frames of different
-// widths and left/right flips stay lined up.
-const drawScale = 1.0;
-const actualW = frameData.w * drawScale;
-const actualH = frameData.h * drawScale;
-ctx.translate(player.x, player.y);
-if (player.direction === -1) {
-ctx.scale(-1, 1);
-}
-ctx.translate(-actualW / 2, -actualH);
-if (frameInfo.rotated) {
-ctx.rotate(-90 * Math.PI / 180);
-ctx.translate(-frameData.h * drawScale, 0);
-ctx.drawImage(
-spriteSheet,
-frameData.x, frameData.y, frameData.h, frameData.w,
-0, 0, frameData.h * drawScale, frameData.w * drawScale
-);
-} else {
-ctx.drawImage(
-spriteSheet,
-frameData.x, frameData.y, frameData.w, frameData.h,
-0, 0, frameData.w * drawScale, frameData.h * drawScale
-);
-}
-ctx.restore();
-}
-requestAnimationFrame(update);
-}
-update();
+            ctx.arc(pt.x, pt.y, pt.radius, 0, Math.PI * 2);
+            ctx.fillStyle = pt.color;
+            ctx.fill();
+            ctx.restore();
+        }
+
+        drawHud();
+        drawCrosshair();
+
+        requestAnimationFrame(update);
+    }
+    update();
 })();
