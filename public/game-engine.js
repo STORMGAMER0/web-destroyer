@@ -1,5 +1,5 @@
 (async function() {
-    console.log("⚡ M.U.G.E.N Void Engine Initialized! Rasenshuriken Loaded...");
+    console.log("⚡ M.U.G.E.N Void Engine Initialized! Jitter Fix Applied...");
 
     // ==========================================
     // 1. ENGINE, CANVAS & VOID SETUP
@@ -63,7 +63,7 @@
 
     const player = {
         x: 100,
-        y: window.innerHeight - 240, 
+        y: window.innerHeight - 50, // Floor baseline coordinate tracking
         vx: 0,
         vy: 0,
         speed: 6,
@@ -112,7 +112,6 @@
         special: filterMugenGroup(350) 
     };
 
-    // This export contains walking frames only. Hold its first frame when idle.
     if (animations.idle.length === 0 && animations.walk.length > 0) {
         animations.idle = [animations.walk[0]];
     }
@@ -130,8 +129,8 @@
         player.vx = 0;
         player.direction = targetX > player.x ? 1 : -1;
 
-        const startX = player.x + (player.direction === 1 ? 60 : 10);
-        const startY = player.y + 30;
+        const startX = player.x + (player.direction === 1 ? 30 : -30);
+        const startY = player.y - 40; 
         
         const angle = Math.atan2(targetY - startY, targetX - startX);
         const projectileSpeed = 12;
@@ -175,10 +174,9 @@
 
         scanOffsets.forEach(offset => {
             const hitElement = document.elementFromPoint(x + offset.dx, y + offset.dy);
-            
             if (hitElement && hitElement !== canvas && hitElement !== voidOverlay && hitElement !== document.body && hitElement !== document.documentElement) {
                 hitElement.style.transition = 'transform 0.5s ease-out, opacity 0.4s ease';
-                hitElement.style.transform = `scale(0) rotate(\${Math.random() * 100 - 50}deg) translate(\${offset.dx * 2}px, \${offset.dy * 2}px)`;
+                hitElement.style.transform = `scale(0) rotate(${Math.random() * 100 - 50}deg) translate(${offset.dx * 2}px, ${offset.dy * 2}px)`;
                 hitElement.style.opacity = '0';
                 setTimeout(() => { hitElement.style.display = 'none'; }, 450);
             }
@@ -188,16 +186,15 @@
 
         voidOverlay.style.backgroundColor = 'rgba(10, 10, 10, 0.96)';
         const currentClip = voidOverlay.style.clipPath || '';
-        
         if (!currentClip.includes('polygon') && !currentClip.includes('path')) {
-            voidOverlay.style.clipPath = `path('M 0 0 L \${window.innerWidth} 0 L \${window.innerWidth} \${window.innerHeight} L 0 \${window.innerHeight} Z M \${x} \${y} m -\${blastRadius}, 0 a \${blastRadius},\${blastRadius} 0 1,0 \${blastRadius * 2},0 a \${blastRadius},\${blastRadius} 0 1,0 -\${blastRadius * 2},0')`;
+            voidOverlay.style.clipPath = `path('M 0 0 L ${window.innerWidth} 0 L ${window.innerWidth} ${window.innerHeight} L 0 ${window.innerHeight} Z M ${x} ${y} m -${blastRadius}, 0 a ${blastRadius},${blastRadius} 0 1,0 ${blastRadius * 2},0 a ${blastRadius},${blastRadius} 0 1,0 -${blastRadius * 2},0')`;
         } else {
-            voidOverlay.style.clipPath += ` path('M \${x} \${y} m -\${blastRadius}, 0 a \${blastRadius},\${blastRadius} 0 1,0 \${blastRadius * 2},0 a \${blastRadius},\${blastRadius} 0 1,0 -\${blastRadius * 2},0')`;
+            voidOverlay.style.clipPath += ` path('M ${x} ${y} m -${blastRadius}, 0 a ${blastRadius},${blastRadius} 0 1,0 ${blastRadius * 2},0 a ${blastRadius},${blastRadius} 0 1,0 -${blastRadius * 2},0')`;
         }
     }
 
     // ==========================================
-    // 6. ENGINE RENDERING & UPDATES CORE LOOP
+    // 6. CORE ENGINE UPDATE & RENDER LOOP
     // ==========================================
     function update() {
         let lastState = player.state;
@@ -231,15 +228,17 @@
         player.x += player.vx;
         player.y += player.vy;
 
-        const floorY = window.innerHeight - 240; 
-        if (player.y >= floorY) {
-            player.y = floorY;
+        // Ground baseline boundary rules
+        const floorBaseline = window.innerHeight - 50; 
+        if (player.y >= floorBaseline) {
+            player.y = floorBaseline;
             player.vy = 0;
             player.isGrounded = true;
         }
 
-        if (player.x < 0) player.x = 0;
-        if (player.x > window.innerWidth - 80) player.x = window.innerWidth - 80;
+        // player.x is the feet center, so keep half a body width from each edge
+        if (player.x < 40) player.x = 40;
+        if (player.x > window.innerWidth - 40) player.x = window.innerWidth - 40;
 
         const currentAnim = animations[player.state] || animations.idle;
         
@@ -264,6 +263,7 @@
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+        // Render projectles
         for (let i = projectiles.length - 1; i >= 0; i--) {
             const p = projectiles[i];
             p.x += p.vx;
@@ -273,102 +273,91 @@
             ctx.save();
             ctx.translate(p.x, p.y);
             ctx.rotate(p.rotation);
-            
             ctx.beginPath();
             ctx.arc(0, 0, p.radius, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(79, 195, 247, 0.4)';
-            ctx.fill();
-            
-            ctx.beginPath();
-            ctx.arc(0, 0, p.radius * 0.5, 0, Math.PI * 2);
-            ctx.fillStyle = '#ffffff';
-            ctx.fill();
-            ctx.restore();
-
-            const dist = Math.hypot(p.tx - p.x, p.ty - p.y);
-            if (dist < 15 || p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) {
-                createExplosion(p.x, p.y);
-                projectiles.splice(i, 1);
-            }
-        }
-
-        for (let i = particles.length - 1; i >= 0; i--) {
-            const pt = particles[i];
-            pt.x += pt.vx;
-            pt.y += pt.vy;
-            pt.alpha -= pt.decay;
-
-            ctx.save();
-            ctx.globalAlpha = pt.alpha;
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, pt.radius, 0, Math.PI * 2);
-            ctx.fillStyle = pt.color;
-            ctx.fill();
-            ctx.restore();
-
-            if (pt.alpha <= 0) particles.splice(i, 1);
-        }
-
-        ctx.save();
-        ctx.translate(mouse.x, mouse.y);
-        ctx.strokeStyle = '#4fc3f7';
-        ctx.lineWidth = 2;
-        
-        ctx.beginPath();
-        ctx.arc(0, 0, 10, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(-15, 0); ctx.lineTo(-4, 0);
-        ctx.moveTo(4, 0); ctx.lineTo(15, 0);
-        ctx.moveTo(0, -15); ctx.lineTo(0, -4);
-        ctx.moveTo(0, 4); ctx.lineTo(0, 15);
-        ctx.stroke();
-        ctx.restore();
-
-        let frameName = currentAnim[player.currentFrameIndex];
-        if (!frameName && animations.walk && animations.walk.length > 0) {
-            frameName = animations.walk[0]; 
-        }
-        if (!frameName) {
-            frameName = allFrameNames[0]; 
-        }
-
-        if (frameName && spriteData.frames[frameName]) {
-            const frameInfo = spriteData.frames[frameName];
-            const frameData = frameInfo.frame;
-
-            ctx.save();
-            ctx.translate(player.x, player.y);
-
-            const scaleFactor = 0.3;
-            
-            if (player.direction === -1) {
-                ctx.translate(frameData.w * scaleFactor, 0);
-                ctx.scale(-1, 1);
-            }
-
-            if (frameInfo.rotated) {
-                ctx.rotate(-90 * Math.PI / 180);
-                ctx.translate(-frameData.h * scaleFactor, 0);
-                ctx.drawImage(
-                    spriteSheet, 
-                    frameData.x, frameData.y, frameData.h, frameData.w, 
-                    0, 0, frameData.h * scaleFactor, frameData.w * scaleFactor
-                );
-            } else {
-                ctx.drawImage(
-                    spriteSheet, 
-                    frameData.x, frameData.y, frameData.w, frameData.h, 
-                    0, 0, frameData.w * scaleFactor, frameData.h * scaleFactor
-                );
-            }
-            
-            ctx.restore();
-        }
-
-        requestAnimationFrame(update);
-    }
-
-    update();
+ctx.fillStyle = 'rgba(79, 195, 247, 0.4)';
+ctx.fill();
+ctx.beginPath();
+ctx.arc(0, 0, p.radius * 0.5, 0, Math.PI * 2);
+ctx.fillStyle = '#ffffff';
+ctx.fill();
+ctx.restore();
+const dist = Math.hypot(p.tx - p.x, p.ty - p.y);
+if (dist < 15 || p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) {
+createExplosion(p.x, p.y);
+projectiles.splice(i, 1);
+}
+}
+// Render particle tracks
+for (let i = particles.length - 1; i >= 0; i--) {
+const pt = particles[i];
+pt.x += pt.vx;
+pt.y += pt.vy;
+pt.alpha -= pt.decay;
+ctx.save();
+ctx.globalAlpha = pt.alpha;
+ctx.beginPath();
+ctx.arc(pt.x, pt.y, pt.radius, 0, Math.PI * 2);
+ctx.fillStyle = pt.color;
+ctx.fill();
+ctx.restore();
+if (pt.alpha <= 0) particles.splice(i, 1);
+}
+// Crosshair handler overlay
+ctx.save();
+ctx.translate(mouse.x, mouse.y);
+ctx.strokeStyle = '#4fc3f7';
+ctx.lineWidth = 2;
+ctx.beginPath();
+ctx.arc(0, 0, 10, 0, Math.PI * 2);
+ctx.stroke();
+ctx.beginPath();
+ctx.moveTo(-15, 0); ctx.lineTo(-4, 0);
+ctx.moveTo(4, 0); ctx.lineTo(15, 0);
+ctx.moveTo(0, -15); ctx.lineTo(0, -4);
+ctx.moveTo(0, 4); ctx.lineTo(0, 15);
+ctx.stroke();
+ctx.restore();
+let frameName = currentAnim[player.currentFrameIndex];
+if (!frameName && animations.walk && animations.walk.length > 0) {
+frameName = animations.walk[0];
+}
+if (!frameName) {
+frameName = allFrameNames[0];
+}
+if (frameName && spriteData.frames[frameName]) {
+const frameInfo = spriteData.frames[frameName];
+const frameData = frameInfo.frame;
+ctx.save();
+// JITTER FIX: frame.w/h is already the upright size, even for rotated frames,
+// so never swap them. Anchor at bottom-center (feet) so frames of different
+// widths and left/right flips stay lined up.
+const drawScale = 1.0;
+const actualW = frameData.w * drawScale;
+const actualH = frameData.h * drawScale;
+ctx.translate(player.x, player.y);
+if (player.direction === -1) {
+ctx.scale(-1, 1);
+}
+ctx.translate(-actualW / 2, -actualH);
+if (frameInfo.rotated) {
+ctx.rotate(-90 * Math.PI / 180);
+ctx.translate(-frameData.h * drawScale, 0);
+ctx.drawImage(
+spriteSheet,
+frameData.x, frameData.y, frameData.h, frameData.w,
+0, 0, frameData.h * drawScale, frameData.w * drawScale
+);
+} else {
+ctx.drawImage(
+spriteSheet,
+frameData.x, frameData.y, frameData.w, frameData.h,
+0, 0, frameData.w * drawScale, frameData.h * drawScale
+);
+}
+ctx.restore();
+}
+requestAnimationFrame(update);
+}
+update();
 })();
