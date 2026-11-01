@@ -1,34 +1,109 @@
 {
- "idle": 0,
- "run": 20,
- "jump_up": 41,
- "jump_peak": 42,
- "jump_down": 43,
- "rs_throw": 1201,
- "rs_core": 351,
- "rs_spin": 3250,
- "rs_wind": 3260,
- "rs_flash": 9018,
- "rs_explode": 3254,
- "tbb_body": 3000,
- "tbb_fox": 30520,
- "tbb_pillar": 9020,
- "tbb_sparks": 9026,
- "tbb_ball": 30550,
- "tbb_glow": 30555,
- "tbb_explode": 30560,
- "kb_fox": 3491,
- "kb_explode": 3448,
- "charge": 7400,
- "shock": 7000,
- "shock2": 7001,
- "tw_body": 3900,
- "tw_form": 3901,
- "tw_tails": 3902,
- "tw_wind": 3930,
- "lv_crust": 4050,
- "lv_core": 4051,
- "lv_wind": 3261,
- "lv_dome": 3270,
- "lv_ring": 3272
+ "air": "Naruto.air",
+ "pixel": [
+  "idle",
+  "run",
+  "jump_up",
+  "jump_peak",
+  "jump_down",
+  "rs_throw",
+  "tbb_body",
+  "tw_body"
+ ],
+ "anims": {
+  "idle": {
+   "anim": 0,
+   "loop": true
+  },
+  "run": {
+   "anim": 20,
+   "loop": true
+  },
+  "jump_up": 41,
+  "jump_peak": 42,
+  "jump_down": 43,
+  "rs_throw": 1201,
+  "rs_core": {
+   "anim": 351,
+   "bake": 0.11,
+   "loop": true
+  },
+  "rs_spin": {
+   "anim": 3250,
+   "loop": true
+  },
+  "rs_wind": {
+   "anim": 3260,
+   "bake": 0.3,
+   "loop": true
+  },
+  "rs_flash": {
+   "anim": 9018,
+   "bake": 0.8
+  },
+  "rs_explode": {
+   "anim": 3254,
+   "bake": 0.5,
+   "decimate": 2
+  },
+  "tbb_body": 3000,
+  "tbb_fox": 30520,
+  "tbb_pillar": {
+   "anim": 9020,
+   "decimate": 2
+  },
+  "tbb_sparks": 9026,
+  "tbb_ball": {
+   "anim": 30550,
+   "loop": true
+  },
+  "tbb_glow": {
+   "anim": 30555,
+   "bake": 0.19,
+   "loop": true
+  },
+  "tbb_explode": 30560,
+  "kb_fox": 3491,
+  "kb_explode": 3448,
+  "charge": 7400,
+  "shock": 7000,
+  "shock2": 7001,
+  "tw_body": 3900,
+  "tw_form": 3901,
+  "tw_tails": {
+   "anim": 3902,
+   "bake": 0.7
+  },
+  "tw_wind": {
+   "anim": 3930,
+   "bake": 0.33,
+   "loop": true
+  },
+  "lv_crust": {
+   "anim": 4050,
+   "bake": 0.15,
+   "loop": true
+  },
+  "lv_core": {
+   "anim": 4051,
+   "bake": 0.61,
+   "decimate": 2,
+   "loop": true
+  },
+  "lv_wind": {
+   "anim": 3261,
+   "bake": 0.41,
+   "loop": true
+  },
+  "lv_dome": {
+   "anim": 3270,
+   "bake": 0.8,
+   "decimate": 3
+  },
+  "lv_ring": {
+   "anim": 3272,
+   "bake": 0.6,
+   "decimate": 2
+  }
+ }
 }

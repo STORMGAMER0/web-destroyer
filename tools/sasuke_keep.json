@@ -1,0 +1,111 @@
+{
+ "air": "Sasuke.air",
+ "pixel": [
+  "idle",
+  "run",
+  "jump_up",
+  "jump_peak",
+  "jump_down",
+  "fb_body",
+  "sa_body",
+  "ct_body",
+  "cs_body",
+  "st_body"
+ ],
+ "anims": {
+  "idle": {
+   "anim": 0,
+   "loop": true
+  },
+  "run": {
+   "anim": 20,
+   "loop": true
+  },
+  "jump_up": 41,
+  "jump_peak": 42,
+  "jump_down": 43,
+  "charge": 7400,
+  "spark": 7001,
+  "fb_body": 1100,
+  "fb_mouth": {
+   "anim": 1120,
+   "bake": 0.3
+  },
+  "fb_ball": {
+   "anim": 1150,
+   "bake": 0.5,
+   "loop": true
+  },
+  "fb_explode": {
+   "anim": 1151,
+   "bake": 0.4,
+   "decimate": 2
+  },
+  "sa_body": 1300,
+  "sa_aura": {
+   "anim": 3352,
+   "bake": 0.7,
+   "decimate": 2
+  },
+  "sa_susanoo": {
+   "anim": 1350,
+   "bake": 0.8
+  },
+  "sa_arrow": {
+   "anim": 1360,
+   "bake": 0.8
+  },
+  "sa_explode": {
+   "anim": 4800,
+   "bake": 0.6
+  },
+  "ct_body": 3000,
+  "ct_core": 3030,
+  "ct_rocks": {
+   "anim": 3050,
+   "bake": 0.75
+  },
+  "ct_explode": {
+   "anim": 3090,
+   "bake": 0.7,
+   "decimate": 2
+  },
+  "ct_fire": 219,
+  "ct_shock": {
+   "anim": 7110,
+   "bake": 0.4,
+   "decimate": 2
+  },
+  "in_susanoo": 4600,
+  "in_flames": {
+   "anim": 2196,
+   "bake": 0.8,
+   "decimate": 2
+  },
+  "in_arrow": 4650,
+  "in_flash": {
+   "anim": 9018,
+   "bake": 0.6
+  },
+  "in_dome": {
+   "anim": 3253,
+   "bake": 0.8,
+   "decimate": 3
+  },
+  "cs_body": 8000,
+  "cs_needle": {
+   "anim": 8050,
+   "bake": 0.5,
+   "loop": true
+  },
+  "cs_bolt": {
+   "anim": 9030,
+   "bake": 0.5
+  },
+  "st_body": 1400,
+  "st_wave": {
+   "anim": 1450,
+   "bake": 1.5
+  }
+ }
+}

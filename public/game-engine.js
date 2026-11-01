@@ -70,12 +70,16 @@
     // naruto.json is built by tools/build_atlas.py straight from the MUGEN
     // character files: sprites keep their real axis (feet / center point) and
     // anims keep MUGEN frame timing (ticks at 60 per second).
-    const ASSET_DIR = ENGINE_ORIGIN + '/characters/naruto/';
+    // Which character to play: ?char=sasuke on the page URL (Naruto when missing or unknown)
+    const CHARACTERS = ['naruto', 'sasuke'];
+    const requested = (new URLSearchParams(location.search).get('char') || '').toLowerCase();
+    const CHAR_ID = CHARACTERS.includes(requested) ? requested : 'naruto';
+    const ASSET_DIR = ENGINE_ORIGIN + '/characters/' + CHAR_ID + '/';
     let charData = null;
     let sheets = [];
 
     try {
-        const response = await fetch(ASSET_DIR + 'naruto.json');
+        const response = await fetch(ASSET_DIR + CHAR_ID + '.json');
         charData = await response.json();
         sheets = await Promise.all(charData.sheets.map(file => new Promise((resolve, reject) => {
             const img = new Image();
@@ -83,7 +87,7 @@
             img.onerror = reject;
             img.src = ASSET_DIR + file;
         })));
-        console.log("✅ Naruto assets successfully compiled!");
+        console.log(`✅ ${CHAR_ID} assets loaded`);
     } catch (err) {
         console.error("❌ Asset loading failed:", err);
         return;
@@ -110,12 +114,17 @@
     }
     applyVolume();
 
+    // All clips arrive in one file (sounds.bin, MP3s back to back) with an index of where
+    // each one sits: one request, and download managers don't grab them as audio files
     (async () => {
         try {
-            const list = await (await fetch(ASSET_DIR + 'sounds/sounds.json')).json();
-            await Promise.all(Object.entries(list).map(async ([name, file]) => {
-                const data = await (await fetch(ASSET_DIR + 'sounds/' + file)).arrayBuffer();
-                sfx[name] = await audio.decodeAudioData(data);
+            const [index, pack] = await Promise.all([
+                fetch(ASSET_DIR + 'sounds/sounds.json').then(r => r.json()),
+                fetch(ASSET_DIR + 'sounds/sounds.bin').then(r => r.arrayBuffer())
+            ]);
+            await Promise.all(Object.entries(index).map(async ([name, [offset, length]]) => {
+                // decodeAudioData takes ownership of its buffer, so give it a copy of the slice
+                sfx[name] = await audio.decodeAudioData(pack.slice(offset, offset + length));
             }));
         } catch (err) {
             console.warn('Sounds failed to load:', err);
@@ -249,7 +258,8 @@
 
     // Draw the current frame with its axis at (x, y). facing -1 mirrors around the axis.
     // centered ignores the axis and centers the sprite on (x, y) instead.
-    function drawAnim(state, x, y, facing = 1, scale = 1, alpha = 1, centered = false) {
+    // rotation (radians) turns the sprite around (x, y), e.g. to point an arrow along its flight.
+    function drawAnim(state, x, y, facing = 1, scale = 1, alpha = 1, centered = false, rotation = 0) {
         const anim = charData.anims[state.name];
         const frame = anim.frames[state.index];
         const spr = charData.sprites[frame.s];
@@ -262,6 +272,7 @@
         ctx.globalAlpha = alpha;
         if (anim.blend === 'add') ctx.globalCompositeOperation = 'lighter';
         ctx.translate(x + frame.x * facing * scale, y + frame.y * scale);
+        if (rotation) ctx.rotate(rotation);
         ctx.scale(flipH ? -scale : scale, flipV ? -scale : scale);
         ctx.drawImage(sheets[spr.sheet], spr.x, spr.y, spr.w, spr.h, -ax, -ay, spr.w, spr.h);
         ctx.restore();
@@ -494,7 +505,7 @@
             <h4>Controls</h4>
             <div class="keys">
                 <b>A / D</b> run · <b>W / Space</b> jump, hold to fly<br>
-                <b>S</b> drop through · <b>1–5</b> jutsu · <b>Click</b> fire
+                <b>S</b> drop through · <b>Number keys</b> jutsu · <b>Click</b> fire
             </div>
         </div>`;
     const panel = ui.querySelector('.panel');
@@ -514,7 +525,7 @@
         writeSetting('wd-volume', String(volume));
         applyVolume();
     });
-    // Keys pressed on the slider shouldn't also move Naruto
+    // Keys pressed on the slider shouldn't also move the character
     volumeSlider.addEventListener('keydown', e => e.stopPropagation());
     muteButton.addEventListener('click', () => {
         muted = !muted;
@@ -536,7 +547,7 @@
     // ==========================================
     // 6. WORLD: PLATFORMS FROM PAGE CONTENT
     // ==========================================
-    // Everything in the world (Naruto, effects, holes) uses page coordinates, so it
+    // Everything in the world (the character, effects, holes) uses page coordinates, so it
     // stays attached to the page while it scrolls. Rendering subtracts the scroll.
     let platforms = [];   // { x1, x2, y } one-way ledges (land on them from above)
     let textBoxes = [];   // { node, x1, y1, x2, y2 } text nodes, for knocking letters loose
@@ -880,7 +891,7 @@
         return { minX, maxX, minY, maxY };
     }
 
-    // Resting rubble is solid: its top edge is a ledge for Naruto and for other rubble.
+    // Resting rubble is solid: its top edge is a ledge for the character and for other rubble.
     // Rebuilt (grouped by height like page ledges) whenever something settles or wakes.
     let rubbleBands = new Map();
     let rubbleDirty = false;
@@ -1092,18 +1103,29 @@
         airTicks: 0,
         dropTicks: 0,        // > 0 while dropping through ledges
         direction: 1,
-        hidden: false,       // true while Kurama stands in for Naruto
+        hidden: false,       // true while a summon (Kurama, Susanoo) stands in for the character
         casting: false,
         anim: createAnim('jump_down')
     };
 
-    const JUTSU = [
-        { key: '1', name: 'Rasenshuriken', cast: castRasenshuriken },
-        { key: '2', name: 'Tailed Beast Bomb', cast: castTailedBeastBomb },
-        { key: '3', name: 'Kurama Bijuudama', cast: castKuramaBijuudama },
-        { key: '4', name: 'Twin Rasenshuriken', cast: castTwinRasenshuriken },
-        { key: '5', name: 'Lava Rasenshuriken', cast: castLavaRasenshuriken }
-    ];
+    const ROSTER = {
+        naruto: [
+            { key: '1', name: 'Rasenshuriken', cast: castRasenshuriken },
+            { key: '2', name: 'Tailed Beast Bomb', cast: castTailedBeastBomb },
+            { key: '3', name: 'Kurama Bijuudama', cast: castKuramaBijuudama },
+            { key: '4', name: 'Twin Rasenshuriken', cast: castTwinRasenshuriken },
+            { key: '5', name: 'Lava Rasenshuriken', cast: castLavaRasenshuriken }
+        ],
+        sasuke: [
+            { key: '1', name: 'Great Fireball', cast: castGreatFireball },
+            { key: '2', name: 'Susanoo Arrow', cast: castSusanooArrow },
+            { key: '3', name: 'Chibaku Tensei', cast: castChibakuTensei },
+            { key: '4', name: "Indra's Arrow", cast: castIndrasArrow },
+            { key: '5', name: 'Chidori Senbon', cast: castChidoriSenbon },
+            { key: '6', name: 'Shinra Tensei', cast: castShinraTensei }
+        ]
+    };
+    const JUTSU = ROSTER[CHAR_ID];
     let selectedJutsu = 0;
 
     const GAME_KEYS = new Set([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
@@ -1152,9 +1174,11 @@
             facing: opts.facing || 1,
             scale: opts.scale || 1,
             centered: !!opts.centered,
-            behind: !!opts.behind,       // draw behind Naruto
+            behind: !!opts.behind,       // draw behind the character
             life: opts.life || null,     // ticks; null = until a non-looping anim ends
             fade: opts.fade || 0,        // ticks of fade-out at the end of life
+            growTo: opts.growTo || null, // scale reached after growTime ticks
+            growTime: opts.growTime || 30,
             age: 0
         };
         effects.push(fx);
@@ -1190,6 +1214,8 @@
             age: 0
         });
     }
+
+    // ---------------- Naruto ----------------
 
     // [1] Rasenshuriken: Naruto raises it overhead and throws; it explodes into a wind dome.
     function castRasenshuriken(tx, ty) {
@@ -1377,6 +1403,183 @@
         after(70, endCast);
     }
 
+    // ---------------- Sasuke ----------------
+
+    // [1] Great Fireball: Sasuke breathes a fireball that bursts into a ring of flame.
+    function castGreatFireball(tx, ty) {
+        faceTarget(tx);
+        startCast('fb_body');
+        player.anim = createAnim('fb_body', 3); // skip the wind-up, start at the inhale
+        spawnEffect('charge', player.x, player.y - 40, { scale: 0.7, life: 25 });
+        playSound('voice_fireball');
+        playSound('charge_small', { volume: 0.5 });
+
+        // fb_body's exhale frame comes 25 ticks after the inhale
+        after(25, () => {
+            const facing = player.direction;
+            const mouthX = player.x + 30 * facing, mouthY = player.y - 35;
+            playSound('voice_fireball_fire');
+            playSound('fire_roar', { volume: 0.6 });
+            spawnEffect('fb_mouth', mouthX, mouthY, { facing });
+            launch(mouthX + 20 * facing, mouthY, tx, ty, 7, [
+                { name: 'fb_ball', scale: 0.8, grow: true },
+            ], (x, y) => {
+                const v = Math.max(0.3, nearVolume(x, y));
+                playSound('fire_explode', { volume: 0.8 * v });
+                spawnEffect('fb_explode', x, y, { scale: 1.2 });
+                createExplosion(x, y, { radius: 170, colors: ['#ff6d00', '#ffab00', '#ffe082'] });
+            });
+        });
+        after(60, endCast);
+    }
+
+    // [2] Susanoo Arrow: a purple Susanoo rises behind Sasuke and looses an arrow.
+    function castSusanooArrow(tx, ty) {
+        faceTarget(tx);
+        startCast('sa_body');
+        player.anim = createAnim('sa_body', 7); // the pointing pose
+        const facing = player.direction;
+        const baseX = player.x, baseY = player.y;
+        spawnEffect('sa_aura', baseX, baseY + 20, { behind: true });
+        spawnEffect('charge', baseX, baseY - 40, { scale: 0.7, life: 25 });
+        playSound('voice_arrow');
+        playSound('susanoo_summon', { volume: 0.6 });
+
+        after(8, () => {
+            spawnEffect('sa_susanoo', baseX - 40 * facing, baseY, { facing, behind: true, life: 60, fade: 15 });
+            playSound('susanoo_appear', { volume: 0.6 });
+            playSound('bow_draw', { volume: 0.6 });
+        });
+
+        // The Susanoo's draw finishes on its last frame (5 + 16 ticks after it appears)
+        after(30, () => {
+            playSound('voice_arrow_fire');
+            playSound('bow_fire', { volume: 0.7 });
+            launch(baseX + 70 * facing, baseY - 110, tx, ty, 13, [
+                { name: 'sa_arrow', scale: 1, aim: 44 },
+            ], (x, y) => {
+                const v = Math.max(0.3, nearVolume(x, y));
+                playSound('arrow_hit', { volume: 0.8 * v });
+                playSound('fire_explode', { volume: 0.5 * v });
+                spawnEffect('sa_explode', x, y, { centered: true, scale: 0.8, life: 30, fade: 20 });
+                spawnEffect('spark', x, y, { scale: 1.2 });
+                createExplosion(x, y, { radius: 160, colors: ['#ce93d8', '#7e57c2', '#ffab40'] });
+            });
+        });
+        after(70, endCast);
+    }
+
+    // [3] Chibaku Tensei: a core opens at the cursor, rocks gather into a sphere, and it bursts.
+    function castChibakuTensei(tx, ty) {
+        faceTarget(tx);
+        startCast('ct_body');
+        player.anim = createAnim('ct_body', 1); // the raised hand
+        spawnEffect('charge', player.x, player.y - 40, { scale: 0.9, life: 30 });
+        playSound('voice_chibaku');
+        playSound('charge_big', { volume: 0.5 });
+
+        after(15, () => {
+            playSound('chibaku_start', { volume: 0.7 });
+            spawnEffect('ct_core', tx, ty, { centered: true, scale: 0.1, growTo: 0.5, growTime: 30, life: 45, fade: 10 });
+        });
+        // Rocks gather around the core
+        after(25, () => spawnEffect('ct_rocks', tx, ty, { centered: true, scale: 1.1, life: 50, fade: 8 }));
+        for (let t = 25; t <= 55; t += 6) after(t, () => playSound('rocks', { volume: 0.5, minGap: 0 }));
+
+        after(75, () => {
+            const v = Math.max(0.3, nearVolume(tx, ty));
+            playSound('chibaku_drop', { volume: 0.7 * v });
+            playSound('chibaku_boom', { volume: 0.9 * v });
+            spawnEffect('ct_explode', tx, ty, { centered: true, scale: 1.2 });
+            spawnEffect('ct_shock', tx, ty, { centered: true, scale: 1.3 });
+            for (let i = 0; i < 4; i++) {
+                const a = Math.random() * Math.PI * 2;
+                spawnEffect('ct_fire', tx + Math.cos(a) * 90, ty + Math.sin(a) * 60, { scale: 0.9 });
+            }
+            createExplosion(tx, ty, { radius: 260, colors: ['#8d6e63', '#ff7043', '#ffcc80'] });
+        });
+        after(45, endCast);
+    }
+
+    // [4] Indra's Arrow: Sasuke's Perfect Susanoo draws its bow and fires a lightning arrow.
+    function castIndrasArrow(tx, ty) {
+        faceTarget(tx);
+        startCast('idle');
+        player.hidden = true;
+        const facing = player.direction;
+        const baseX = player.x, baseY = player.y;
+        spawnEffect('sa_aura', baseX, baseY + 20, { behind: true, scale: 1.3 });
+        spawnEffect('in_flames', baseX - 20 * facing, baseY, { behind: true, scale: 1.4 });
+        spawnEffect('in_susanoo', baseX, baseY, { facing, life: 85, fade: 15 });
+        playSound('voice_indra');
+        playSound('charge_big', { volume: 0.5 });
+        after(25, () => playSound('indra_bow', { volume: 0.7 }));
+
+        // in_susanoo looses the arrow on its last frame, 50 ticks in
+        after(50, () => {
+            playSound('bow_fire', { volume: 0.7 });
+            playSound('indra_arrow', { volume: 0.7 });
+            launch(baseX + 90 * facing, baseY - 170, tx, ty, 16, [
+                { name: 'in_arrow', scale: 1, aim: 36 },
+            ], (x, y) => {
+                const v = Math.max(0.3, nearVolume(x, y));
+                playSound('indra_hit', { volume: 0.9 * v });
+                playSound('chibaku_boom', { volume: 0.6 * v });
+                spawnEffect('in_flash', x, y, { scale: 0.8 });
+                spawnEffect('in_dome', x, y, { scale: 1.3 });
+                createExplosion(x, y, { radius: 250, colors: ['#e1f5fe', '#4fc3f7', '#b2ff59'] });
+            });
+        });
+        after(90, endCast);
+    }
+
+    // [5] Chidori Senbon: a quick volley of lightning needles that crackle where they land.
+    function castChidoriSenbon(tx, ty) {
+        faceTarget(tx);
+        startCast('cs_body');
+        playSound('voice_senbon');
+
+        for (let i = 0; i < 6; i++) {
+            after(10 + i * 2, () => {
+                const facing = player.direction;
+                const sx = player.x + 30 * facing, sy = player.y - 50 - Math.random() * 10;
+                // A little spread so the volley peppers the target
+                const spread = (Math.random() - 0.5) * 50;
+                playSound('needle', { volume: 0.4, minGap: 0 });
+                launch(sx, sy, tx + spread, ty + spread * 0.6, 18, [
+                    { name: 'cs_needle', scale: 1, aim: 0 },
+                ], (x, y) => {
+                    generated.crackle(nearVolume(x, y) * 3);
+                    spawnEffect('cs_bolt', x + (Math.random() - 0.5) * 20, y - 10, { scale: 1.2 });
+                    spawnEffect('spark', x, y, { scale: 0.35 });
+                    createExplosion(x, y, { radius: 45, colors: ['#bbdefb', '#64b5f6', '#ffffff'] });
+                });
+            });
+        }
+        after(40, endCast);
+    }
+
+    // [6] Shinra Tensei: a shockwave bursts out from Sasuke himself, tearing a crater around him
+    // and hurling every piece of rubble nearby away. Not aimed: the cursor only sets his facing.
+    function castShinraTensei(tx, ty) {
+        faceTarget(tx);
+        startCast('st_body');
+        spawnEffect('charge', player.x, player.y - 35, { scale: 0.7, life: 35 });
+        playSound('voice_shinra');
+        playSound('charge_small', { volume: 0.5 });
+
+        // st_body throws its arms out 35 ticks in, when the original releases the wave
+        after(35, () => {
+            const cx = player.x, cy = player.y - 40;
+            playSound('shinra_blast', { volume: 0.9 });
+            playSound('chibaku_boom', { volume: 0.5 });
+            spawnEffect('st_wave', cx, cy, { centered: true, scale: 1, growTo: 1.8, growTime: 30 });
+            disturbDebris(cx, cy, 700, 22);
+            createExplosion(cx, cy, { radius: 300, colors: ['#eceff1', '#b0bec5', '#ffffff'] });
+        });
+        after(60, endCast);
+    }
+
     // ==========================================
     // 11. DESTRUCTION
     // ==========================================
@@ -1509,7 +1712,7 @@
             playSound('step', { volume: 0.45, rate: 0.92 + Math.random() * 0.16, minGap: 0 });
         }
 
-        // Camera: while Naruto moves, keep his feet between two lines on screen. Crossing a line
+        // Camera: while the character moves, keep his feet between two lines on screen. Crossing a line
         // scrolls the page by exactly the overshoot, so he stays put and the page glides.
         if (player.vx !== 0 || player.vy !== 0) {
             const vh = window.innerHeight;
@@ -1590,7 +1793,8 @@
             if (fx.life && fx.fade && fx.age > fx.life - fx.fade) {
                 alpha = Math.max(0, (fx.life - fx.age) / fx.fade);
             }
-            drawAnim(fx.anim, fx.x, fx.y, fx.facing, fx.scale, alpha, fx.centered);
+            const scale = fx.growTo ? fx.scale + (fx.growTo - fx.scale) * Math.min(1, fx.age / fx.growTime) : fx.scale;
+            drawAnim(fx.anim, fx.x, fx.y, fx.facing, scale, alpha, fx.centered);
         }
     }
 
@@ -1743,8 +1947,11 @@
 
         for (const p of projectiles) {
             const grow = Math.min(1, 0.4 + p.age / 60);
+            const heading = Math.atan2(p.vy, p.vx);
             for (const l of p.layers) {
-                drawAnim(l.anim, p.x, p.y, 1, l.scale * (l.grow ? grow : 1), 1, true);
+                // aim = the angle (degrees) the sprite already points at in the sheet
+                const rotation = l.aim === undefined ? 0 : heading - l.aim * Math.PI / 180;
+                drawAnim(l.anim, p.x, p.y, 1, l.scale * (l.grow ? grow : 1), 1, true, rotation);
             }
         }
 

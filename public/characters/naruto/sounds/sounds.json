@@ -1,31 +1,118 @@
 {
- "voice_rasenshuriken": "voice_rasenshuriken.mp3",
- "voice_tbb_call": "voice_tbb_call.mp3",
- "voice_tbb_fire": "voice_tbb_fire.mp3",
- "voice_twin_start": "voice_twin_start.mp3",
- "voice_twin_fire": "voice_twin_fire.mp3",
- "voice_kurama": "voice_kurama.mp3",
- "voice_lava": "voice_lava.mp3",
- "charge_small": "charge_small.mp3",
- "charge_big": "charge_big.mp3",
- "whoosh": "whoosh.mp3",
- "throw": "throw.mp3",
- "rs_hit_tail": "rs_hit_tail.mp3",
- "blast_rumble": "blast_rumble.mp3",
- "rs_hit": "rs_hit.mp3",
- "twin_fire": "twin_fire.mp3",
- "rs_spin": "rs_spin.mp3",
- "lava_sizzle": "lava_sizzle.mp3",
- "fox_fire": "fox_fire.mp3",
- "fox_appear": "fox_appear.mp3",
- "bomb_boom_end": "bomb_boom_end.mp3",
- "bomb_boom": "bomb_boom.mp3",
- "bomb_hit": "bomb_hit.mp3",
- "twin_ball": "twin_ball.mp3",
- "twin_charge": "twin_charge.mp3",
- "step": "step.mp3",
- "dash": "dash.mp3",
- "jump": "jump.mp3",
- "land": "land.mp3",
- "fly": "fly.mp3"
+ "voice_rasenshuriken": [
+  0,
+  13208
+ ],
+ "voice_tbb_call": [
+  13208,
+  12372
+ ],
+ "voice_tbb_fire": [
+  25580,
+  12372
+ ],
+ "voice_twin_start": [
+  37952,
+  7566
+ ],
+ "voice_twin_fire": [
+  45518,
+  17388
+ ],
+ "voice_kurama": [
+  62906,
+  19060
+ ],
+ "voice_lava": [
+  81966,
+  12163
+ ],
+ "charge_small": [
+  94129,
+  13676
+ ],
+ "charge_big": [
+  107805,
+  13100
+ ],
+ "whoosh": [
+  120905,
+  2341
+ ],
+ "throw": [
+  123246,
+  6103
+ ],
+ "rs_hit_tail": [
+  129349,
+  14044
+ ],
+ "blast_rumble": [
+  143393,
+  29509
+ ],
+ "rs_hit": [
+  172902,
+  26792
+ ],
+ "twin_fire": [
+  199694,
+  10733
+ ],
+ "rs_spin": [
+  210427,
+  18851
+ ],
+ "lava_sizzle": [
+  229278,
+  15716
+ ],
+ "fox_fire": [
+  244994,
+  9029
+ ],
+ "fox_appear": [
+  254023,
+  16552
+ ],
+ "bomb_boom_end": [
+  270575,
+  22656
+ ],
+ "bomb_boom": [
+  293231,
+  15716
+ ],
+ "bomb_hit": [
+  308947,
+  14044
+ ],
+ "twin_ball": [
+  322991,
+  9656
+ ],
+ "twin_charge": [
+  332647,
+  18851
+ ],
+ "step": [
+  351498,
+  1772
+ ],
+ "dash": [
+  353270,
+  6956
+ ],
+ "jump": [
+  360226,
+  4013
+ ],
+ "land": [
+  364239,
+  1772
+ ],
+ "fly": [
+  366011,
+  12163
+ ]
 }

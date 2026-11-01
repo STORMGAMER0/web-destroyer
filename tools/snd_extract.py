@@ -1,6 +1,9 @@
-# Extract chosen sounds from a MUGEN .snd file into small MP3s + a manifest for the engine.
+# Extract chosen sounds from a MUGEN .snd file and pack them, as MP3s, into one file.
 # usage: snd_extract.py <file.snd> <sounds.json> <out_dir>
 #   sounds.json maps a name the engine uses to "group,sample", e.g. {"jump": "40,3"}
+# Writes <out_dir>/sounds.bin (the MP3s back to back) and <out_dir>/sounds.json
+# ({name: [offset, length]}). One plain data file instead of loose .mp3s means a single
+# request, and download managers (e.g. IDM) don't grab the clips as they load.
 # Needs ffmpeg on PATH.
 import json, os, struct, subprocess, sys, tempfile
 
@@ -22,7 +25,7 @@ for _ in range(count):
 
 os.makedirs(out_dir, exist_ok=True)
 manifest = {}
-total = 0
+pack = bytearray()
 with tempfile.TemporaryDirectory() as tmp:
     for name, key in names.items():
         group, sample = map(int, key.split(','))
@@ -32,13 +35,14 @@ with tempfile.TemporaryDirectory() as tmp:
             continue
         src = os.path.join(tmp, f'{group}_{sample}.wav')
         open(src, 'wb').write(wav)
-        dst = os.path.join(out_dir, f'{name}.mp3')
+        mp3 = os.path.join(tmp, f'{group}_{sample}.mp3')
         # Mono, 64 kbps: plenty for short game sounds
-        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', src, '-ac', '1', '-b:a', '64k', dst], check=True)
-        size = os.path.getsize(dst)
-        total += size
-        manifest[name] = f'{name}.mp3'
-        print(f'{name:22} {key:>7}  {size // 1024:3} KB')
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', src, '-ac', '1', '-b:a', '64k', mp3], check=True)
+        data_mp3 = open(mp3, 'rb').read()
+        manifest[name] = [len(pack), len(data_mp3)]
+        pack += data_mp3
+        print(f'{name:22} {key:>7}  {len(data_mp3) // 1024:3} KB')
 
+open(os.path.join(out_dir, 'sounds.bin'), 'wb').write(pack)
 json.dump(manifest, open(os.path.join(out_dir, 'sounds.json'), 'w'), indent=1)
-print(f'{len(manifest)} sounds, {total // 1024} KB total')
+print(f'{len(manifest)} sounds, {len(pack) // 1024} KB total')
