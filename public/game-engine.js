@@ -1,33 +1,49 @@
 (async function() {
     console.log("⚡ M.U.G.E.N Void Engine Initialized! Ranged Jutsu Loaded...");
 
+    // The proxy adds a <base> tag pointing at the target site, so our own files
+    // must be loaded from the origin this script came from.
+    const ENGINE_ORIGIN = new URL(document.currentScript.src).origin;
+    const html = document.documentElement;
+    const body = document.body;
+
     // ==========================================
-    // 1. ENGINE, CANVAS & VOID SETUP
+    // 1. PAGE PREP: BACKGROUND STAGE & CANVAS
     // ==========================================
+    // Remember the page's own background before we take over <html>'s background.
+    function readPageBg() {
+        for (const el of [body, html]) {
+            const c = getComputedStyle(el).backgroundColor;
+            if (c && c !== 'transparent' && !/rgba\(.*,\s*0\)$/.test(c)) return c;
+        }
+        return 'rgb(255, 255, 255)';
+    }
+    const pageBg = readPageBg();
+
+    // The backdrop shows through holes and above the page; body keeps the page colour.
+    html.style.setProperty('background', '#120a24', 'important');
+    html.style.setProperty('padding-top', '38vh', 'important');
+    body.style.setProperty('background-color', pageBg, 'important');
+    html.style.cursor = 'none';
+    body.style.cursor = 'none';
+
+    const bgCanvas = document.createElement('canvas');
+    bgCanvas.width = 320;
+    bgCanvas.height = 180;
+    Object.assign(bgCanvas.style, {
+        position: 'fixed', top: '0', left: '0', width: '100vw', height: '100vh',
+        objectFit: 'cover', imageRendering: 'pixelated', zIndex: '-2147483647', pointerEvents: 'none'
+    });
+    html.appendChild(bgCanvas);
+
+    // Game canvas lives on <html>, outside <body>, so the hole mask never cuts it
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-    canvas.style.position = 'fixed';
-    canvas.style.top = '0';
-    canvas.style.left = '0';
-    canvas.style.width = '100vw';
-    canvas.style.height = '100vh';
-    canvas.style.zIndex = '999999';
-    canvas.style.pointerEvents = 'none';
-    document.body.appendChild(canvas);
-
-    const voidOverlay = document.createElement('div');
-    voidOverlay.style.position = 'fixed';
-    voidOverlay.style.top = '0';
-    voidOverlay.style.left = '0';
-    voidOverlay.style.width = '100vw';
-    voidOverlay.style.height = '100vh';
-    voidOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0)';
-    voidOverlay.style.zIndex = '999998';
-    voidOverlay.style.pointerEvents = 'none';
-    document.body.appendChild(voidOverlay);
-
-    document.documentElement.style.cursor = 'none';
-    document.body.style.cursor = 'none';
+    Object.assign(canvas.style, {
+        position: 'fixed', top: '0', left: '0', width: '100vw', height: '100vh',
+        zIndex: '2147483646', pointerEvents: 'none'
+    });
+    html.appendChild(canvas);
 
     function resizeCanvas() {
         canvas.width = window.innerWidth;
@@ -42,7 +58,7 @@
     // naruto.json is built by tools/build_atlas.py straight from the MUGEN
     // character files: sprites keep their real axis (feet / center point) and
     // anims keep MUGEN frame timing (ticks at 60 per second).
-    const ASSET_DIR = '/characters/naruto/';
+    const ASSET_DIR = ENGINE_ORIGIN + '/characters/naruto/';
     let charData = null;
     let sheets = [];
 
@@ -108,27 +124,801 @@
     }
 
     // ==========================================
-    // 4. STATE VECTORS & INPUT
+    // 4. PIXEL-ART BACKGROUNDS
+    // ==========================================
+    // Drawn at 320x180 and scaled up with pixelated rendering. Seeded so each theme
+    // looks the same every time.
+    const BW = 320, BH = 180;
+    const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+
+    function makeRng(seed) {
+        return () => {
+            seed = (seed + 0x6D2B79F5) | 0;
+            let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+
+    function hexRgb(hex) {
+        const n = parseInt(hex.slice(1), 16);
+        return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
+
+    // Vertical gradient with ordered dithering between colour bands
+    function paintSky(g, stops, y0, y1) {
+        const rgb = stops.map(hexRgb);
+        const img = g.getImageData(0, 0, BW, BH);
+        for (let y = y0; y < y1; y++) {
+            const t = ((y - y0) / Math.max(1, y1 - y0 - 1)) * (rgb.length - 1);
+            const i = Math.min(Math.floor(t), rgb.length - 2);
+            const f = t - i;
+            for (let x = 0; x < BW; x++) {
+                const c = f > BAYER[(y & 3) * 4 + (x & 3)] / 16 ? rgb[i + 1] : rgb[i];
+                const p = (y * BW + x) * 4;
+                img.data[p] = c[0]; img.data[p + 1] = c[1]; img.data[p + 2] = c[2]; img.data[p + 3] = 255;
+            }
+        }
+        g.putImageData(img, 0, 0);
+    }
+
+    function pixelCircle(g, cx, cy, r, color) {
+        g.fillStyle = color;
+        for (let y = -r; y <= r; y++) {
+            const w = Math.floor(Math.sqrt(r * r - y * y));
+            g.fillRect(cx - w, cy + y, w * 2 + 1, 1);
+        }
+    }
+
+    // A jagged ridge line, filled down to the bottom of the image
+    function ridge(g, rng, base, amp, roughness, color) {
+        g.fillStyle = color;
+        let h = base - rng() * amp;
+        let slope = 0;
+        for (let x = 0; x < BW; x++) {
+            slope += (rng() - 0.5) * roughness;
+            slope = Math.max(-1.4, Math.min(1.4, slope));
+            h += slope;
+            if (h < base - amp) { h = base - amp; slope = Math.abs(slope); }
+            if (h > base) { h = base; slope = -Math.abs(slope); }
+            g.fillRect(x, Math.round(h), 1, BH - Math.round(h));
+        }
+    }
+
+    function drawCities(g) {
+        const rng = makeRng(7);
+        paintSky(g, ['#1a0f3a', '#3b1858', '#6e2177', '#b23a7d', '#ec6a6e', '#ffa45c', '#ffd56b'], 0, BH);
+        pixelCircle(g, 228, 118, 20, '#ffe9a0');
+        // Streaky sunset clouds
+        for (let i = 0; i < 16; i++) {
+            const y = 14 + Math.floor(rng() * 80);
+            const x = Math.floor(rng() * BW) - 30;
+            const len = 30 + Math.floor(rng() * 70);
+            g.fillStyle = y < 50 ? '#5a2272' : '#c4507a';
+            g.fillRect(x, y, len, 2);
+            g.fillStyle = y < 50 ? '#7a3088' : '#f07a7a';
+            g.fillRect(x + 4, y - 1, len - 10, 1);
+        }
+        // Back row of towers
+        for (let x = -4; x < BW;) {
+            const w = 10 + Math.floor(rng() * 18);
+            const h = 55 + Math.floor(rng() * 60);
+            g.fillStyle = '#4b1f63';
+            g.fillRect(x, BH - h, w, h);
+            g.fillStyle = '#7a3b8f';
+            for (let wy = BH - h + 4; wy < BH - 4; wy += 5) {
+                for (let wx = x + 2; wx < x + w - 2; wx += 4) if (rng() < 0.12) g.fillRect(wx, wy, 2, 2);
+            }
+            x += w + Math.floor(rng() * 4);
+        }
+        // Front row with lit windows and antennas
+        for (let x = -6; x < BW;) {
+            const w = 14 + Math.floor(rng() * 22);
+            const h = 28 + Math.floor(rng() * 50);
+            g.fillStyle = '#22103a';
+            g.fillRect(x, BH - h, w, h);
+            if (rng() < 0.4) g.fillRect(x + Math.floor(w / 2), BH - h - 8, 1, 8);
+            for (let wy = BH - h + 3; wy < BH - 3; wy += 4) {
+                for (let wx = x + 2; wx < x + w - 2; wx += 3) {
+                    if (rng() < 0.22) {
+                        g.fillStyle = rng() < 0.6 ? '#ff8fc8' : '#ffd56b';
+                        g.fillRect(wx, wy, 1, 2);
+                    }
+                }
+            }
+            x += w + 1 + Math.floor(rng() * 3);
+        }
+    }
+
+    function drawMountainDusk(g) {
+        const rng = makeRng(21);
+        paintSky(g, ['#0b1030', '#1d1b4f', '#43286b', '#83386f', '#d0605f', '#f6a05a'], 0, 135);
+        g.fillStyle = '#f6a05a';
+        g.fillRect(0, 135, BW, BH - 135);
+        for (let i = 0; i < 70; i++) {
+            g.fillStyle = rng() < 0.7 ? '#ffffff' : '#bcb6ff';
+            g.fillRect(Math.floor(rng() * BW), Math.floor(rng() * 70), 1, 1);
+        }
+        pixelCircle(g, 70, 36, 9, '#fff1c9');
+        g.fillStyle = '#e8d7a8';
+        g.fillRect(66, 33, 2, 2);
+        g.fillRect(72, 39, 3, 2);
+        ridge(g, rng, 120, 55, 0.5, '#3d2b63');
+        ridge(g, rng, 140, 40, 0.6, '#2a1d4a');
+        ridge(g, rng, 162, 26, 0.7, '#140d26');
+    }
+
+    function drawSunnyLand(g) {
+        const rng = makeRng(3);
+        paintSky(g, ['#3d8bff', '#5fb0ff', '#8fd0ff', '#c4ecff'], 0, 150);
+        pixelCircle(g, 262, 32, 13, '#fff6a8');
+        pixelCircle(g, 262, 32, 10, '#ffffe0');
+        // Puffy clouds
+        for (let i = 0; i < 7; i++) {
+            const cx = Math.floor(rng() * BW);
+            const cy = 20 + Math.floor(rng() * 60);
+            const puffs = 3 + Math.floor(rng() * 3);
+            for (let p = 0; p < puffs; p++) {
+                const r = 5 + Math.floor(rng() * 6);
+                pixelCircle(g, cx + p * 8 - puffs * 4, cy + 3, r, '#cfe6ff');
+                pixelCircle(g, cx + p * 8 - puffs * 4, cy, r, '#ffffff');
+            }
+        }
+        // Rolling hills
+        const hill = (base, amp, freq, phase, color) => {
+            g.fillStyle = color;
+            for (let x = 0; x < BW; x++) {
+                const h = Math.round(base - amp * (0.5 + 0.5 * Math.sin(x * freq + phase)) - Math.sin(x * freq * 2.7 + phase) * amp * 0.25);
+                g.fillRect(x, h, 1, BH - h);
+            }
+        };
+        hill(138, 18, 0.025, 1, '#7ccf5a');
+        hill(156, 14, 0.035, 4, '#4fa83a');
+        // Dithered grass texture and little trees
+        g.fillStyle = '#3f8f2c';
+        for (let i = 0; i < 260; i++) g.fillRect(Math.floor(rng() * BW), 150 + Math.floor(rng() * 30), 1, 1);
+        for (let i = 0; i < 12; i++) {
+            const tx = Math.floor(rng() * BW);
+            const ty = 140 + Math.floor(rng() * 20);
+            g.fillStyle = '#6b4a2b';
+            g.fillRect(tx, ty, 1, 4);
+            pixelCircle(g, tx, ty - 2, 3, '#2e7d32');
+        }
+    }
+
+    const BACKGROUNDS = {
+        'Mountain dusk': drawMountainDusk,
+        'Sunny land': drawSunnyLand,
+        'Cities': drawCities
+    };
+
+    function readSetting(key, fallback) {
+        try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; }
+    }
+    function writeSetting(key, value) {
+        try { localStorage.setItem(key, value); } catch (e) { /* storage blocked: keep in memory only */ }
+    }
+
+    let currentBg = readSetting('wd-background', 'Cities');
+    if (!BACKGROUNDS[currentBg]) currentBg = 'Cities';
+
+    function setBackground(name) {
+        currentBg = name;
+        writeSetting('wd-background', name);
+        const g = bgCanvas.getContext('2d');
+        g.clearRect(0, 0, BW, BH);
+        BACKGROUNDS[name](g);
+        updateSettingsUi();
+    }
+
+    // ==========================================
+    // 5. SETTINGS PANEL (shadow DOM so page CSS can't touch it)
+    // ==========================================
+    const uiHost = document.createElement('div');
+    Object.assign(uiHost.style, { position: 'fixed', top: '10px', right: '10px', zIndex: '2147483647' });
+    html.appendChild(uiHost);
+    const ui = uiHost.attachShadow({ mode: 'open' });
+    ui.innerHTML = `
+        <style>
+            * { box-sizing: border-box; font: 600 12px/1.3 system-ui, sans-serif; cursor: default; }
+            .gear { background: rgba(20, 12, 36, 0.85); color: #fff; border: 1px solid #ffffff33;
+                    border-radius: 6px; padding: 6px 10px; cursor: pointer; float: right; }
+            .panel { clear: both; margin-top: 6px; width: 240px; background: rgba(20, 12, 36, 0.92);
+                     color: #fff; border: 1px solid #ffffff33; border-radius: 8px; padding: 10px; }
+            .panel[hidden] { display: none; }
+            h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #ffb74d; }
+            .row { display: flex; gap: 6px; margin-bottom: 10px; }
+            .row button { flex: 1; background: #ffffff14; color: #fff; border: 1px solid #ffffff2a;
+                          border-radius: 5px; padding: 6px 4px; cursor: pointer; }
+            .row button.on { background: #ff9800; color: #000; border-color: #ff9800; }
+            .keys { color: #d8d0ee; font-weight: 500; }
+            .keys b { color: #fff; }
+        </style>
+        <button class="gear" part="gear">⚙ Settings</button>
+        <div class="panel" hidden>
+            <h4>Background</h4>
+            <div class="row" id="bgs"></div>
+            <h4>Controls</h4>
+            <div class="keys">
+                <b>A / D</b> run · <b>W / Space</b> jump, hold to fly<br>
+                <b>S</b> drop through · <b>1–5</b> jutsu · <b>Click</b> fire
+            </div>
+        </div>`;
+    const panel = ui.querySelector('.panel');
+    ui.querySelector('.gear').addEventListener('click', () => { panel.hidden = !panel.hidden; });
+    const bgRow = ui.querySelector('#bgs');
+    for (const name of Object.keys(BACKGROUNDS)) {
+        const b = document.createElement('button');
+        b.textContent = name;
+        b.addEventListener('click', () => setBackground(name));
+        bgRow.appendChild(b);
+    }
+    function updateSettingsUi() {
+        for (const b of bgRow.children) b.classList.toggle('on', b.textContent === currentBg);
+    }
+    setBackground(currentBg);
+
+    function isUiEvent(e) {
+        return e.composedPath().includes(uiHost);
+    }
+
+    // ==========================================
+    // 6. WORLD: PLATFORMS FROM PAGE CONTENT
+    // ==========================================
+    // Everything in the world (Naruto, effects, holes) uses page coordinates, so it
+    // stays attached to the page while it scrolls. Rendering subtracts the scroll.
+    let platforms = [];   // { x1, x2, y } one-way ledges (land on them from above)
+    let textBoxes = [];   // { node, x1, y1, x2, y2 } text nodes, for knocking letters loose
+    let platformBands = new Map(); // ledges grouped by height, for fast landing checks
+    const BAND = 64;
+
+    const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'IFRAME']);
+
+    // Sticky headers and fixed bars would follow the screen. Pin them to the page instead,
+    // where they currently are, so they scroll away and become ground like everything else.
+    function unpinBars() {
+        const pinned = [];
+        for (const el of body.querySelectorAll('*')) {
+            const pos = getComputedStyle(el).position;
+            if (pos === 'fixed' || pos === 'sticky') pinned.push({ el, pos, r: el.getBoundingClientRect() });
+        }
+        const sx = window.scrollX, sy = window.scrollY;
+        for (const { el, pos, r } of pinned) {
+            const set = (k, v) => el.style.setProperty(k, v, 'important');
+            if (pos === 'sticky') {
+                set('position', 'relative');
+                set('top', 'auto');
+                set('bottom', 'auto');
+                continue;
+            }
+            set('position', 'absolute');
+            set('right', 'auto');
+            set('bottom', 'auto');
+            set('width', r.width + 'px');
+            // Offsets are relative to the containing block; a static <body> means the page itself
+            const parent = el.offsetParent;
+            let ox = -sx, oy = -sy;
+            if (parent && !(parent === body && getComputedStyle(body).position === 'static')) {
+                const pr = parent.getBoundingClientRect();
+                ox = pr.left + parent.clientLeft;
+                oy = pr.top + parent.clientTop;
+            }
+            set('left', (r.left - ox) + 'px');
+            set('top', (r.top - oy) + 'px');
+        }
+    }
+
+    function scanPage() {
+        const sx = window.scrollX, sy = window.scrollY;
+        const nextPlatforms = [];
+        const nextText = [];
+        const range = document.createRange();
+        unpinBars();
+
+        const b = body.getBoundingClientRect();
+        nextPlatforms.push({ x1: b.left + sx, x2: b.right + sx, y: b.top + sy });
+
+        // Each rendered line of text is a ledge
+        const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+                const parent = node.parentElement;
+                if (!parent || SKIP_TAGS.has(parent.tagName) || !node.data.trim()) return NodeFilter.FILTER_REJECT;
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        });
+        while (walker.nextNode()) {
+            const node = walker.currentNode;
+            range.selectNodeContents(node);
+            let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+            for (const r of range.getClientRects()) {
+                if (r.width < 2 || r.height < 2) continue;
+                nextPlatforms.push({ x1: r.left + sx, x2: r.right + sx, y: r.top + sy });
+                x1 = Math.min(x1, r.left + sx); y1 = Math.min(y1, r.top + sy);
+                x2 = Math.max(x2, r.right + sx); y2 = Math.max(y2, r.bottom + sy);
+            }
+            if (x2 > x1) nextText.push({ node, x1, y1, x2, y2 });
+        }
+
+        // Images, form controls and visibly coloured boxes are ledges too
+        const boxes = body.querySelectorAll('img, svg, video, canvas, input, button, select, textarea, hr, table, th, td, header, nav, div, section, aside');
+        for (let i = 0; i < boxes.length && i < 6000; i++) {
+            const el = boxes[i];
+            const r = el.getBoundingClientRect();
+            if (r.width < 12 || r.height < 4) continue;
+            const tag = el.tagName;
+            const media = tag === 'IMG' || tag === 'svg' || tag === 'VIDEO' || tag === 'CANVAS';
+            let solid = media || tag === 'INPUT' || tag === 'BUTTON' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'HR';
+            if (!solid) {
+                const cs = getComputedStyle(el);
+                const bg = cs.backgroundColor;
+                const hasBg = bg !== 'transparent' && !/rgba\(.*,\s*0\)$/.test(bg) && bg !== pageBg;
+                const hasBorder = parseFloat(cs.borderTopWidth) > 0 && cs.borderTopStyle !== 'none';
+                solid = hasBg || hasBorder;
+            }
+            if (!solid) continue;
+            nextPlatforms.push({ x1: r.left + sx, x2: r.right + sx, y: r.top + sy });
+        }
+
+        platforms = nextPlatforms;
+        textBoxes = nextText;
+        platformBands = new Map();
+        for (const pl of nextPlatforms) {
+            const k = Math.floor(pl.y / BAND);
+            if (!platformBands.has(k)) platformBands.set(k, []);
+            platformBands.get(k).push(pl);
+        }
+    }
+
+    let rescanTimer = null;
+    function scheduleRescan() {
+        clearTimeout(rescanTimer);
+        rescanTimer = setTimeout(scanPage, 300);
+    }
+    scanPage();
+    window.addEventListener('load', scheduleRescan);
+    window.addEventListener('resize', scheduleRescan);
+    new ResizeObserver(scheduleRescan).observe(body);
+
+    // ==========================================
+    // 7. CRATERS: ONE DAMAGE MAP FOR THE WHOLE PAGE
+    // ==========================================
+    // Every blast adds a lumpy blob. Blobs that overlap form one crater (the shape is the
+    // union of all blobs), so repeated hits grow a hole instead of stacking rings.
+    // The map is stored at 1/DMG resolution and scaled up with hard edges for the pixel look:
+    //   holeMap - opaque where the page is gone (the background is painted through it)
+    //   decalMap - soot halo, charred rim and the torn paper lip
+    const DMG = 3;
+    const MAP_MAX = 16384;
+    const craters = []; // { x, y, R, waves, soot, age, burn }
+    const holeMap = document.createElement('canvas');
+    const decalMap = document.createElement('canvas');
+    const lowRes = document.createElement('canvas'); // per-frame viewport composite
+    const pageRgb = (pageBg.match(/\d+/g) || [255, 255, 255]).slice(0, 3).map(Number);
+
+    function hash(x, y) {
+        const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+        return s - Math.floor(s);
+    }
+
+    function radiusAt(c, angle) {
+        let r = 1;
+        for (const w of c.waves) r += w.a * Math.sin(w.k * angle + w.p);
+        return c.R * r;
+    }
+
+    // Signed distance-ish to the crater union: < 0 inside a hole. Also returns the nearest blob.
+    function craterField(x, y, list = craters) {
+        let best = Infinity, owner = null;
+        for (const c of list) {
+            const dx = x - c.x, dy = y - c.y;
+            if (Math.abs(dx) > c.R * 1.5 + c.soot || Math.abs(dy) > c.R * 1.5 + c.soot) continue;
+            const f = Math.sqrt(dx * dx + dy * dy) - radiusAt(c, Math.atan2(dy, dx));
+            if (f < best) { best = f; owner = c; }
+        }
+        return { f: best, owner };
+    }
+
+    function inHole(x, y) {
+        return craterField(x, y).f < 0;
+    }
+
+    function ensureMapSize() {
+        const w = Math.min(MAP_MAX, Math.ceil(Math.max(html.scrollWidth, window.innerWidth) / DMG) + 2);
+        const h = Math.min(MAP_MAX, Math.ceil(Math.max(html.scrollHeight, body.scrollHeight) / DMG) + 2);
+        for (const map of [holeMap, decalMap]) {
+            if (map.width >= w && map.height >= h) continue;
+            const copy = document.createElement('canvas');
+            copy.width = map.width; copy.height = map.height;
+            if (map.width && map.height) copy.getContext('2d').drawImage(map, 0, 0);
+            map.width = Math.max(w, map.width);
+            map.height = Math.max(h, map.height);
+            map.getContext('2d').drawImage(copy, 0, 0);
+        }
+    }
+
+    // Recompute every map pixel in a page-space box from all craters touching it
+    function paintDamage(x0, y0, x1, y1) {
+        const mx0 = Math.max(0, Math.floor(x0 / DMG)), my0 = Math.max(0, Math.floor(y0 / DMG));
+        const mx1 = Math.min(holeMap.width, Math.ceil(x1 / DMG)), my1 = Math.min(holeMap.height, Math.ceil(y1 / DMG));
+        const w = mx1 - mx0, h = my1 - my0;
+        if (w <= 0 || h <= 0) return;
+        const near = craters.filter(c => c.x + c.R * 1.5 + c.soot > x0 && c.x - c.R * 1.5 - c.soot < x1 &&
+                                         c.y + c.R * 1.5 + c.soot > y0 && c.y - c.R * 1.5 - c.soot < y1);
+        const holes = new ImageData(w, h);
+        const decal = new ImageData(w, h);
+        const put = (img, p, r, g, b, a) => { img.data[p] = r; img.data[p + 1] = g; img.data[p + 2] = b; img.data[p + 3] = a; };
+
+        for (let my = 0; my < h; my++) {
+            for (let mx = 0; mx < w; mx++) {
+                const gx = mx0 + mx, gy = my0 + my;
+                const px = (gx + 0.5) * DMG, py = (gy + 0.5) * DMG;
+                const { f: raw, owner: c } = craterField(px, py, near);
+                if (!c) continue;
+                const f = raw + (hash(gx, gy) - 0.5) * DMG * 1.6; // ragged pixel edge
+                const p = (my * w + mx) * 4;
+                if (f < 0) {
+                    put(holes, p, 0, 0, 0, 255);
+                    // Torn paper lip hanging into the bottom of the hole
+                    const lip = c.R * (0.07 + hash(gx, 7) * 0.09);
+                    if (py - c.y > c.R * 0.25 && f > -lip) {
+                        const edge = f > -lip * 0.35;
+                        put(decal, p, ...(edge ? pageRgb.map(v => v - 30) : pageRgb), 255);
+                    } else if (f > -DMG * 1.2) {
+                        put(decal, p, 24, 16, 14, 255); // charred rim
+                    }
+                } else if (f < c.soot) {
+                    // Soot halo: solid near the edge, dithered further out
+                    const t = f / c.soot;
+                    const keep = Math.pow(1 - t, 1.3) > BAYER[(gy & 3) * 4 + (gx & 3)] / 16;
+                    if (t < 0.12) put(decal, p, 30, 24, 22, 255);
+                    else if (keep) put(decal, p, ...(t < 0.45 ? [52, 46, 46] : [118, 112, 112]), t < 0.45 ? 235 : 200);
+                }
+            }
+        }
+        holeMap.getContext('2d').putImageData(holes, mx0, my0);
+        decalMap.getContext('2d').putImageData(decal, mx0, my0);
+    }
+
+    function addCrater(x, y, R) {
+        const waves = [];
+        for (let k = 2; k <= 6; k++) {
+            waves.push({ k, a: (0.04 + Math.random() * 0.07) / (k * 0.45), p: Math.random() * Math.PI * 2 });
+        }
+        const c = { x, y, R, waves, soot: R * 0.6 + 10, age: 0, burn: 300 + Math.random() * 300 };
+        craters.push(c);
+        disturbDebris(x, y, R * 1.6 + 40, 0);
+        ensureMapSize();
+        const reach = R * 1.5 + c.soot + DMG * 2;
+        paintDamage(x - reach, y - reach, x + reach, y + reach);
+    }
+
+    // Paint the backdrop into the holes at low resolution, add soot, scale up with hard edges
+    function drawCraters() {
+        if (!craters.length) return;
+        const vw = canvas.width, vh = canvas.height;
+        const sx = window.scrollX, sy = window.scrollY;
+        const mx0 = Math.floor(sx / DMG), my0 = Math.floor(sy / DMG);
+        const offX = mx0 * DMG - sx, offY = my0 * DMG - sy;
+        const lw = Math.ceil(vw / DMG) + 2, lh = Math.ceil(vh / DMG) + 2;
+        if (lowRes.width !== lw || lowRes.height !== lh) { lowRes.width = lw; lowRes.height = lh; }
+        const g = lowRes.getContext('2d');
+        g.imageSmoothingEnabled = false;
+        g.globalCompositeOperation = 'source-over';
+        g.clearRect(0, 0, lw, lh);
+
+        // Same "cover" fit as the CSS backdrop, so holes line up with what's around the page
+        const scale = Math.max(vw / BW, vh / BH);
+        const dw = BW * scale, dh = BH * scale;
+        g.drawImage(bgCanvas, ((vw - dw) / 2 - offX) / DMG, ((vh - dh) / 2 - offY) / DMG, dw / DMG, dh / DMG);
+        g.globalCompositeOperation = 'destination-in';
+        g.drawImage(holeMap, mx0, my0, lw, lh, 0, 0, lw, lh);
+        g.globalCompositeOperation = 'source-over';
+        g.drawImage(decalMap, mx0, my0, lw, lh, 0, 0, lw, lh);
+
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(lowRes, offX, offY, lw * DMG, lh * DMG);
+        ctx.restore();
+    }
+
+    // ==========================================
+    // 8. DEBRIS: SHARDS, LOOSE LETTERS, FIRE
+    // ==========================================
+    const shards = [];
+    const letters = [];
+    const letterQueue = []; // { span, delay } letters waiting to drop one at a time
+    const flames = [];
+    const puffs = [];       // grey smoke clouds drifting off blasts and burning edges
+    const particles = [];
+    const MAX_LETTERS_PER_BLAST = 140;
+
+    const MAX_SHARDS = 350;
+    const MAX_LETTERS = 1200;
+
+    // The colour actually showing at a screen point: the nearest opaque background behind it
+    function colorAt(screenX, screenY) {
+        let el = document.elementFromPoint(screenX, screenY);
+        if (!el || el === html || el === canvas) return null;
+        for (; el && el !== html; el = el.parentElement) {
+            const c = getComputedStyle(el).backgroundColor;
+            if (c && c !== 'transparent' && !/rgba\(.*,\s*0\)$/.test(c)) return c;
+        }
+        return pageBg;
+    }
+
+    // Torn pieces of whatever was hit (its colour, or the image showing there). They fall,
+    // land on ledges and stay as rubble.
+    function spawnShards(cx, cy, r) {
+        const count = 6 + Math.floor(r / 9);
+        for (let i = 0; i < count; i++) {
+            const a = Math.random() * Math.PI * 2;
+            const d = r * (0.5 + Math.random() * 0.6);
+            const x = cx + Math.cos(a) * d;
+            const y = cy + Math.sin(a) * d;
+            const color = colorAt(x - window.scrollX, y - window.scrollY);
+            if (!color) continue; // blast in the sky: no page here to tear
+
+            // Mostly plank-like quads, some triangles
+            const size = 8 + Math.random() * r * 0.4;
+            const pts = [];
+            if (Math.random() < 0.7) {
+                const w = size * (0.8 + Math.random() * 1.4), h = size * (0.25 + Math.random() * 0.45);
+                for (const [qx, qy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+                    pts.push([qx * w / 2 * (0.8 + Math.random() * 0.4), qy * h / 2 * (0.8 + Math.random() * 0.4)]);
+                }
+            } else {
+                for (let k = 0; k < 3; k++) {
+                    const pa = (k / 3) * Math.PI * 2 + (Math.random() - 0.5) * 0.8;
+                    pts.push([Math.cos(pa) * size * 0.6, Math.sin(pa) * size * 0.6]);
+                }
+            }
+
+            // Use the image actually visible at this spot (carousels stack hidden images)
+            const under = document.elementFromPoint(x - window.scrollX, y - window.scrollY);
+            let image = null;
+            if (under && under.tagName === 'IMG' && under.complete && under.naturalWidth) {
+                const ir = under.getBoundingClientRect();
+                image = { el: under, x1: ir.left + window.scrollX, y1: ir.top + window.scrollY, x2: ir.right + window.scrollX, y2: ir.bottom + window.scrollY };
+            }
+            shards.push({
+                x, y, ox: x, oy: y, pts, color, image,
+                vx: Math.cos(a) * (2 + Math.random() * 5),
+                vy: Math.sin(a) * (2 + Math.random() * 4) - 3 - Math.random() * 3,
+                rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.35,
+                lines: color === pageBg && Math.random() < 0.6 ? Math.floor(Math.random() * 4) : 0,
+                resting: false
+            });
+        }
+        if (shards.length > MAX_SHARDS) shards.splice(0, shards.length - MAX_SHARDS);
+    }
+
+    // Bounding box of a piece's outline at its current rotation, relative to its centre
+    function shapeBounds(o) {
+        const c = Math.cos(o.rot), sn = Math.sin(o.rot);
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const [px, py] of o.pts) {
+            const rx = px * c - py * sn, ry = px * sn + py * c;
+            if (rx < minX) minX = rx;
+            if (rx > maxX) maxX = rx;
+            if (ry < minY) minY = ry;
+            if (ry > maxY) maxY = ry;
+        }
+        return { minX, maxX, minY, maxY };
+    }
+
+    // Resting rubble is solid: its top edge is a ledge for Naruto and for other rubble.
+    // Rebuilt (grouped by height like page ledges) whenever something settles or wakes.
+    let rubbleBands = new Map();
+    let rubbleDirty = false;
+
+    function rebuildRubble() {
+        rubbleBands = new Map();
+        for (const list of [shards, letters]) {
+            for (const o of list) {
+                if (!o.resting) continue;
+                const b = shapeBounds(o);
+                const ledge = { x1: o.x + b.minX * 0.85, x2: o.x + b.maxX * 0.85, y: o.y + b.minY, o };
+                if (ledge.x2 - ledge.x1 < 2) continue;
+                const k = Math.floor(ledge.y / BAND);
+                if (!rubbleBands.has(k)) rubbleBands.set(k, []);
+                rubbleBands.get(k).push(ledge);
+            }
+        }
+        rubbleDirty = false;
+    }
+
+    function settle(o, resting) {
+        if (o.resting !== resting) rubbleDirty = true;
+        o.resting = resting;
+    }
+
+    // One step of falling for a piece of debris: gravity, then land on the first ledge crossed
+    function stepDebris(o, gravity) {
+        if (o.resting) return;
+        const prevBottom = o.y + shapeBounds(o).maxY;
+        o.vy = Math.min(o.vy + gravity, 14);
+        o.vx *= 0.995;
+        o.x += o.vx;
+        o.y += o.vy;
+        o.rot += o.vr;
+        if (o.vy < 0) return;
+        const b = shapeBounds(o);
+        const bottom = o.y + b.maxY;
+        let land = findLanding(o.x + b.minX * 0.5, o.x + b.maxX * 0.5, prevBottom, bottom, o);
+        const floor = docBottom();
+        if (land === null && bottom >= floor) land = floor; // bottom of the page
+        if (land === null) return;
+        o.y = land - b.maxY;
+        if (o.vy > 2.5) {
+            o.vy = -o.vy * 0.25; // small bounce
+            o.vx *= 0.55;
+            o.vr *= 0.5;
+        } else {
+            o.vy = 0; o.vx = 0; o.vr = 0;
+            settle(o, true);
+        }
+    }
+
+    // Rubble whose support is gone (blasted away, or under a new crater) starts falling again.
+    // Pieces stacked on it follow on later checks once it has moved.
+    function checkRubbleSupport() {
+        if (rubbleDirty) rebuildRubble();
+        const floor = docBottom();
+        for (const list of [shards, letters]) {
+            for (const o of list) {
+                if (!o.resting) continue;
+                const b = shapeBounds(o);
+                const bottom = o.y + b.maxY;
+                if (bottom >= floor - 1) continue;
+                if (findLanding(o.x + b.minX * 0.5, o.x + b.maxX * 0.5, bottom - 1, bottom + 1, o) === null) {
+                    settle(o, false);
+                }
+            }
+        }
+    }
+
+    // Wake resting debris near a point (its ledge may be gone) and optionally blast it outward
+    function disturbDebris(cx, cy, reach, force) {
+        for (const list of [shards, letters]) {
+            for (const o of list) {
+                const dx = o.x - cx, dy = o.y - cy;
+                const d = Math.hypot(dx, dy);
+                if (d > reach) continue;
+                settle(o, false);
+                if (force) {
+                    const k = force * (1 - d / reach);
+                    o.vx += (dx / (d || 1)) * k;
+                    o.vy += (dy / (d || 1)) * k - k * 0.6;
+                    o.vr += (Math.random() - 0.5) * 0.4;
+                }
+            }
+        }
+    }
+
+    // Wrap individual characters near the blast in hidden-able spans and queue them to fall
+    function loosenLetters(cx, cy, rIn, rOut) {
+        const range = document.createRange();
+        const picks = [];
+        for (const t of textBoxes) {
+            if (picks.length >= MAX_LETTERS_PER_BLAST) break;
+            if (t.x2 < cx - rOut || t.x1 > cx + rOut || t.y2 < cy - rOut || t.y1 > cy + rOut) continue;
+            const node = t.node;
+            if (!node.isConnected) continue;
+            const text = node.data;
+            for (let i = 0; i < text.length && picks.length < MAX_LETTERS_PER_BLAST; i++) {
+                if (/\s/.test(text[i])) continue;
+                range.setStart(node, i);
+                range.setEnd(node, i + 1);
+                const r = range.getBoundingClientRect();
+                if (!r.width) continue;
+                const px = r.left + r.width / 2 + window.scrollX;
+                const py = r.top + r.height / 2 + window.scrollY;
+                const d = Math.hypot(px - cx, py - cy);
+                if (d < rIn || d > rOut) continue;
+                if (Math.random() > 1 - ((d - rIn) / (rOut - rIn)) * 0.85) continue;
+                picks.push({ node, i });
+            }
+        }
+
+        // Split from the highest index down so earlier indices in the same node stay valid
+        picks.sort((a, b) => a.node === b.node ? b.i - a.i : 0);
+        for (const { node, i } of picks) {
+            if (!node.isConnected || i >= node.data.length) continue;
+            const ch = node.splitText(i);
+            ch.splitText(1);
+            const span = document.createElement('span');
+            ch.replaceWith(span);
+            span.appendChild(ch);
+            letterQueue.push({ span, delay: Math.floor(Math.random() * 70) });
+        }
+    }
+
+    // Roughly the ink of a glyph, centred on where it's drawn (the line box has extra space)
+    function glyphBox(w, h) {
+        const hw = w * 0.4, hh = h * 0.28;
+        return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]];
+    }
+
+    function dropLetter(span) {
+        if (!span.isConnected) return;
+        const r = span.getBoundingClientRect();
+        const cs = getComputedStyle(span);
+        span.style.visibility = 'hidden';
+        if (!r.width) return;
+        letters.push({
+            ch: span.textContent,
+            font: cs.font || `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`,
+            color: cs.color,
+            x: r.left + r.width / 2 + window.scrollX,
+            y: r.top + r.height / 2 + window.scrollY,
+            pts: glyphBox(r.width, r.height),
+            vx: (Math.random() - 0.5) * 3,
+            vy: -1 - Math.random() * 3,
+            rot: 0, vr: (Math.random() - 0.5) * 0.3,
+            resting: false
+        });
+        if (letters.length > MAX_LETTERS) letters.splice(0, letters.length - MAX_LETTERS);
+    }
+
+    // Flames sit on the crater's outer edge; points swallowed by a neighbouring blob are skipped
+    function spawnFlame(c) {
+        const a = Math.random() * Math.PI * 2;
+        const d = radiusAt(c, a) * (0.97 + Math.random() * 0.1);
+        const x = c.x + Math.cos(a) * d;
+        const y = c.y + Math.sin(a) * d;
+        if (craterField(x, y).f < -DMG * 2) return;
+        flames.push({
+            x, y,
+            vx: (Math.random() - 0.5) * 0.4,
+            vy: -(0.5 + Math.random() * 1.1),
+            size: 3 + Math.random() * 5,
+            life: 0,
+            max: 22 + Math.random() * 30
+        });
+    }
+
+    function spawnPuff(x, y, big) {
+        puffs.push({
+            x, y,
+            r: big ? 10 + Math.random() * 16 : 5 + Math.random() * 7,
+            vx: (Math.random() - 0.5) * 0.6,
+            vy: -(0.15 + Math.random() * 0.5),
+            shade: 120 + Math.floor(Math.random() * 80),
+            life: 0,
+            max: 80 + Math.random() * 90
+        });
+    }
+
+    function flameColor(t) {
+        if (t < 0.2) return '#fff3a0';
+        if (t < 0.45) return '#ffb02e';
+        if (t < 0.7) return '#ff5a1f';
+        return `rgba(60, 54, 54, ${Math.min(1, (1 - t) * 1.6).toFixed(2)})`; // smoke
+    }
+
+    // ==========================================
+    // 9. STATE VECTORS & INPUT
     // ==========================================
     const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-    const particles = [];
     const projectiles = [];
     const effects = [];     // one-shot or timed animations drawn in the world
     const timers = [];      // scheduled jutsu steps, counted in ticks
 
     const player = {
-        x: 100,
-        y: window.innerHeight - 20, // feet (sprite axis) position
+        x: 120,
+        y: window.scrollY + 60, // feet (sprite axis) position, in page coordinates
         vx: 0,
         vy: 0,
         speed: 6,
         gravity: 0.6,
-        jumpForce: -14,
+        jumpForce: -13,
         isGrounded: false,
+        airTicks: 0,
+        dropTicks: 0,        // > 0 while dropping through ledges
         direction: 1,
         hidden: false,       // true while Kurama stands in for Naruto
         casting: false,
-        anim: createAnim('idle')
+        anim: createAnim('jump_down')
     };
 
     const JUTSU = [
@@ -140,11 +930,15 @@
     ];
     let selectedJutsu = 0;
 
+    const GAME_KEYS = new Set([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
     const keys = {};
     window.addEventListener('keydown', e => {
-        keys[e.key.toLowerCase()] = true;
+        const k = e.key.toLowerCase();
+        keys[k] = true;
+        if (GAME_KEYS.has(k)) e.preventDefault(); // don't scroll the page
         const slot = JUTSU.findIndex(j => j.key === e.key);
         if (slot !== -1) selectedJutsu = slot;
+        if ((k === 's' || k === 'arrowdown') && player.isGrounded) player.dropTicks = 14;
     });
     window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
@@ -154,13 +948,16 @@
     });
 
     window.addEventListener('mousedown', e => {
+        if (isUiEvent(e)) return;
+        e.preventDefault(); // no text selection or focusing page inputs
         if (e.button === 0 && !player.casting) {
-            JUTSU[selectedJutsu].cast(e.clientX, e.clientY);
+            JUTSU[selectedJutsu].cast(e.clientX + window.scrollX, e.clientY + window.scrollY);
         }
-    });
+    }, true);
 
     // Clicks are attacks: stop them from following links or pressing page buttons
     window.addEventListener('click', e => {
+        if (isUiEvent(e)) return;
         e.preventDefault();
         e.stopPropagation();
     }, true);
@@ -189,7 +986,7 @@
     }
 
     // ==========================================
-    // 5. RANGED JUTSU
+    // 10. RANGED JUTSU
     // ==========================================
     function faceTarget(targetX) {
         player.direction = targetX >= player.x ? 1 : -1;
@@ -360,16 +1157,26 @@
     }
 
     // ==========================================
-    // 6. DESTRUCTION & PARTICLES
+    // 11. DESTRUCTION
     // ==========================================
+    // Punch a burning hole, tear paper shards out of it and shake letters loose around it.
     function createExplosion(x, y, { radius = 60, colors = ['#4fc3f7', '#ffffff'] } = {}) {
-        const sparkCount = 45;
-        for (let i = 0; i < sparkCount; i++) {
+        const holeR = Math.round(radius * 0.55);
+        disturbDebris(x, y, radius * 1.4, 9);
+        addCrater(x, y, holeR);
+        spawnShards(x, y, holeR);
+        loosenLetters(x, y, holeR * 0.85, holeR * 1.9);
+        for (let i = 0; i < 8 + holeR / 10; i++) {
+            const a = Math.random() * Math.PI * 2;
+            const d = holeR * (0.8 + Math.random() * 0.7);
+            spawnPuff(x + Math.cos(a) * d, y + Math.sin(a) * d, true);
+        }
+
+        for (let i = 0; i < 45; i++) {
             const angle = Math.random() * Math.PI * 2;
             const speed = Math.random() * 8 + 3;
             particles.push({
-                x: x,
-                y: y,
+                x, y,
                 vx: Math.cos(angle) * speed,
                 vy: Math.sin(angle) * speed,
                 radius: Math.random() * 4 + 2,
@@ -378,47 +1185,41 @@
                 decay: Math.random() * 0.03 + 0.01
             });
         }
-
-        // Sample the blast area in rings. The canvas and overlay have pointer-events: none,
-        // so elementFromPoint sees straight through them to the page underneath.
-        const viewportArea = window.innerWidth * window.innerHeight;
-        const hit = new Set();
-        for (const ring of [0, 0.5, 1]) {
-            const steps = ring === 0 ? 1 : 8;
-            for (let i = 0; i < steps; i++) {
-                const a = (i / steps) * Math.PI * 2;
-                const el = document.elementFromPoint(x + Math.cos(a) * radius * ring, y + Math.sin(a) * radius * ring);
-                if (!el || el === document.body || el === document.documentElement) continue;
-                // Skip page-sized wrappers so one blast doesn't wipe out the whole site
-                const rect = el.getBoundingClientRect();
-                if (rect.width * rect.height > viewportArea * 0.5) continue;
-                hit.add(el);
-            }
-        }
-
-        hit.forEach(hitElement => {
-            const dx = Math.random() * 200 - 100;
-            const dy = Math.random() * 200 - 100;
-            hitElement.style.transition = 'transform 0.5s ease-out, opacity 0.4s ease';
-            hitElement.style.transform = `scale(0) rotate(${Math.random() * 100 - 50}deg) translate(${dx}px, ${dy}px)`;
-            hitElement.style.opacity = '0';
-            setTimeout(() => { hitElement.style.visibility = 'hidden'; }, 450);
-        });
-
-        const blastRadius = Math.round(radius * 0.6);
-        voidOverlay.style.backgroundColor = 'rgba(10, 10, 10, 0.96)';
-        const currentClip = voidOverlay.style.clipPath || '';
-        if (!currentClip.includes('polygon') && !currentClip.includes('path')) {
-            voidOverlay.style.clipPath = `path('M 0 0 L ${window.innerWidth} 0 L ${window.innerWidth} ${window.innerHeight} L 0 ${window.innerHeight} Z M ${x} ${y} m -${blastRadius}, 0 a ${blastRadius},${blastRadius} 0 1,0 ${blastRadius * 2},0 a ${blastRadius},${blastRadius} 0 1,0 -${blastRadius * 2},0')`;
-        } else {
-            voidOverlay.style.clipPath += ` path('M ${x} ${y} m -${blastRadius}, 0 a ${blastRadius},${blastRadius} 0 1,0 ${blastRadius * 2},0 a ${blastRadius},${blastRadius} 0 1,0 -${blastRadius * 2},0')`;
-        }
     }
 
     // ==========================================
-    // 7. CORE ENGINE UPDATE & RENDER LOOP
+    // 12. CORE ENGINE UPDATE & RENDER LOOP
     // ==========================================
+    function docBottom() {
+        return Math.max(html.scrollHeight, body.scrollHeight) - 4;
+    }
+
+    // Highest ledge crossed by a body spanning x1..x2 this tick (one-way: only when falling
+    // onto it). Ledges are the page's own plus resting rubble; `self` is never its own ledge.
+    function findLanding(x1, x2, prevY, nextY, self = null) {
+        let best = null;
+        for (let k = Math.floor((prevY - 0.5) / BAND); k <= Math.floor(nextY / BAND); k++) {
+            for (const bands of [platformBands, rubbleBands]) {
+                const band = bands.get(k);
+                if (!band) continue;
+                for (const p of band) {
+                    if (x2 < p.x1 || x1 > p.x2 || p.y < prevY - 0.5 || p.y > nextY) continue;
+                    if (best !== null && p.y >= best) continue;
+                    if (p.o) {
+                        if (p.o === self) continue;
+                    } else if (inHole(Math.min(Math.max((x1 + x2) / 2, p.x1), p.x2), p.y)) {
+                        continue;
+                    }
+                    best = p.y;
+                }
+            }
+        }
+        return best;
+    }
+
     function updatePlayer() {
+        const jumpHeld = keys['w'] || keys['arrowup'] || keys[' '];
+
         if (!player.casting) {
             player.vx = 0;
             if (keys['a'] || keys['arrowleft']) {
@@ -429,26 +1230,42 @@
                 player.direction = 1;
             }
 
-            if ((keys['w'] || keys['arrowup'] || keys[' ']) && player.isGrounded) {
+            if (jumpHeld && player.isGrounded) {
                 player.vy = player.jumpForce;
                 player.isGrounded = false;
+            } else if (jumpHeld && player.airTicks > 12) {
+                // Hold jump to fly: thrust beats gravity, capped climb speed
+                player.vy = Math.max(player.vy - 1.0, -5);
             }
         }
 
-        player.vy += player.gravity;
+        const prevY = player.y;
+        player.vy = Math.min(player.vy + player.gravity, 16);
         player.x += player.vx;
         player.y += player.vy;
+        if (player.dropTicks > 0) player.dropTicks--;
 
-        const floorBaseline = window.innerHeight - 20;
-        if (player.y >= floorBaseline) {
-            player.y = floorBaseline;
+        player.isGrounded = false;
+        if (player.vy >= 0 && player.dropTicks === 0) {
+            const landY = findLanding(player.x - 8, player.x + 8, prevY, player.y);
+            if (landY !== null) {
+                player.y = landY;
+                player.vy = 0;
+                player.isGrounded = true;
+            }
+        }
+        const floor = docBottom();
+        if (player.y >= floor) {
+            player.y = floor;
             player.vy = 0;
             player.isGrounded = true;
         }
+        player.airTicks = player.isGrounded ? 0 : player.airTicks + 1;
 
         // player.x is the feet axis, so keep half a body width from each edge
+        const maxX = Math.max(html.scrollWidth, window.innerWidth) - 30;
         if (player.x < 30) player.x = 30;
-        if (player.x > window.innerWidth - 30) player.x = window.innerWidth - 30;
+        if (player.x > maxX) player.x = maxX;
 
         if (!player.casting) {
             if (!player.isGrounded) setPlayerAnim(player.vy < 0 ? 'jump_up' : 'jump_down');
@@ -456,6 +1273,78 @@
             else setPlayerAnim('idle');
         }
         stepAnim(player.anim);
+
+        // Camera: while Naruto moves, keep his feet between two lines on screen. Crossing a line
+        // scrolls the page by exactly the overshoot, so he stays put and the page glides.
+        if (player.vx !== 0 || player.vy !== 0) {
+            const vh = window.innerHeight;
+            const topLine = Math.min(170, vh * 0.45);
+            const bottomLine = Math.max(vh - 50, topLine + 100);
+            const feet = player.y - window.scrollY;
+            if (feet < topLine) window.scrollTo(window.scrollX, player.y - topLine);
+            else if (feet > bottomLine) window.scrollTo(window.scrollX, player.y - bottomLine);
+        }
+    }
+
+    function updateDebris() {
+        // Letters drop one at a time
+        for (let i = letterQueue.length - 1; i >= 0; i--) {
+            if (--letterQueue[i].delay <= 0) {
+                dropLetter(letterQueue[i].span);
+                letterQueue.splice(i, 1);
+            }
+        }
+
+        const viewBottom = window.scrollY + window.innerHeight + 200;
+        const lost = docBottom() + 400;
+
+        for (let i = letters.length - 1; i >= 0; i--) {
+            stepDebris(letters[i], 0.35);
+            if (letters[i].y > lost) letters.splice(i, 1);
+        }
+        for (let i = shards.length - 1; i >= 0; i--) {
+            stepDebris(shards[i], 0.3);
+            if (shards[i].y > lost) shards.splice(i, 1);
+        }
+
+        // Craters near the screen keep burning, then smoulder
+        const viewTop = window.scrollY - 300;
+        for (const c of craters) {
+            c.age++;
+            if (c.y < viewTop || c.y > viewBottom + 100 || flames.length > 1800) continue;
+            const burning = c.age < c.burn;
+            let n = burning ? c.R * 0.012 : c.R * 0.0015;
+            while (n > 0) {
+                if (Math.random() < n) spawnFlame(c);
+                n -= 1;
+            }
+            if (burning && puffs.length < 300 && Math.random() < 0.02) {
+                const a = -Math.PI / 2 + (Math.random() - 0.5) * 2;
+                spawnPuff(c.x + Math.cos(a) * c.R, c.y + Math.sin(a) * c.R, false);
+            }
+        }
+        for (let i = puffs.length - 1; i >= 0; i--) {
+            const pf = puffs[i];
+            pf.x += pf.vx;
+            pf.y += pf.vy;
+            pf.r += 0.04;
+            if (++pf.life > pf.max) puffs.splice(i, 1);
+        }
+        for (let i = flames.length - 1; i >= 0; i--) {
+            const f = flames[i];
+            f.x += f.vx;
+            f.y += f.vy;
+            f.life++;
+            if (f.life > f.max) flames.splice(i, 1);
+        }
+
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const pt = particles[i];
+            pt.x += pt.vx;
+            pt.y += pt.vy;
+            pt.alpha -= pt.decay;
+            if (pt.alpha <= 0) particles.splice(i, 1);
+        }
     }
 
     function drawEffects(behind) {
@@ -467,6 +1356,35 @@
             }
             drawAnim(fx.anim, fx.x, fx.y, fx.facing, fx.scale, alpha, fx.centered);
         }
+    }
+
+    function drawShard(s) {
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.rotate(s.rot);
+        ctx.beginPath();
+        s.pts.forEach(([px, py], k) => k ? ctx.lineTo(px, py) : ctx.moveTo(px, py));
+        ctx.closePath();
+        ctx.fillStyle = s.color;
+        ctx.fill();
+        if (s.image) {
+            // Draw the image as it sat on the page, relative to where this shard was torn from
+            ctx.save();
+            ctx.clip();
+            const im = s.image;
+            ctx.drawImage(im.el, im.x1 - s.ox, im.y1 - s.oy, im.x2 - im.x1, im.y2 - im.y1);
+            ctx.restore();
+        } else if (s.lines) {
+            ctx.save();
+            ctx.clip();
+            ctx.fillStyle = 'rgba(40, 40, 40, 0.35)';
+            for (let k = 0; k < s.lines; k++) ctx.fillRect(-30, -12 + k * 8, 60, 2);
+            ctx.restore();
+        }
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.25)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
     }
 
     function drawHud() {
@@ -503,6 +1421,8 @@
         ctx.restore();
     }
 
+    let supportClock = 0;
+
     // One game tick. MUGEN timing assumes 60 ticks per second.
     function tick() {
         // Scheduled jutsu steps
@@ -514,6 +1434,8 @@
             }
         }
 
+        if (rubbleDirty) rebuildRubble();
+        if (++supportClock % 10 === 0) checkRubbleSupport();
         updatePlayer();
 
         // Effects
@@ -526,6 +1448,7 @@
         }
 
         // Projectiles
+        const sx = window.scrollX, sy = window.scrollY;
         for (let i = projectiles.length - 1; i >= 0; i--) {
             const p = projectiles[i];
             p.x += p.vx;
@@ -535,24 +1458,48 @@
 
             const dist = Math.hypot(p.tx - p.x, p.ty - p.y);
             const speed = Math.hypot(p.vx, p.vy);
-            if (dist <= speed || p.x < -200 || p.x > canvas.width + 200 || p.y < -200 || p.y > canvas.height + 200) {
+            const offscreen = p.x < sx - 300 || p.x > sx + canvas.width + 300 || p.y < sy - 300 || p.y > sy + canvas.height + 300;
+            if (dist <= speed || offscreen) {
                 projectiles.splice(i, 1);
                 p.onHit(p.tx, p.ty);
             }
         }
 
-        // Particles
-        for (let i = particles.length - 1; i >= 0; i--) {
-            const pt = particles[i];
-            pt.x += pt.vx;
-            pt.y += pt.vy;
-            pt.alpha -= pt.decay;
-            if (pt.alpha <= 0) particles.splice(i, 1);
-        }
+        updateDebris();
     }
 
     function render() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const sx = window.scrollX, sy = window.scrollY;
+        const vw = canvas.width, vh = canvas.height;
+
+        drawCraters();
+
+        // ---- World (page coordinates) ----
+        ctx.save();
+        ctx.translate(-sx, -sy);
+
+        for (const pf of puffs) {
+            if (pf.y + pf.r < sy || pf.y - pf.r > sy + vh) continue;
+            const t = pf.life / pf.max;
+            ctx.globalAlpha = Math.min(1, (1 - t) * 1.4) * 0.85;
+            ctx.fillStyle = `rgb(${pf.shade}, ${pf.shade}, ${pf.shade})`;
+            ctx.beginPath();
+            ctx.arc(pf.x, pf.y, pf.r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = `rgb(${pf.shade + 25}, ${pf.shade + 25}, ${pf.shade + 25})`;
+            ctx.beginPath();
+            ctx.arc(pf.x - pf.r * 0.15, pf.y - pf.r * 0.15, pf.r * 0.7, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        for (const f of flames) {
+            const t = f.life / f.max;
+            const s = Math.max(1, Math.round(f.size * (1 - t * 0.5)));
+            ctx.fillStyle = flameColor(t);
+            ctx.fillRect(Math.round(f.x - s / 2), Math.round(f.y - s / 2), s, s);
+        }
 
         drawEffects(true);
         if (!player.hidden) drawAnim(player.anim, player.x, player.y, player.direction);
@@ -565,6 +1512,22 @@
             }
         }
 
+        const onScreen = o => o.y > sy - 150 && o.y < sy + vh + 150;
+        for (const s of shards) if (onScreen(s)) drawShard(s);
+
+        for (const l of letters) {
+            if (!onScreen(l)) continue;
+            ctx.save();
+            ctx.translate(l.x, l.y);
+            ctx.rotate(l.rot);
+            ctx.font = l.font;
+            ctx.fillStyle = l.color;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(l.ch, 0, 0);
+            ctx.restore();
+        }
+
         for (const pt of particles) {
             ctx.save();
             ctx.globalAlpha = Math.max(0, pt.alpha);
@@ -575,6 +1538,9 @@
             ctx.restore();
         }
 
+        ctx.restore();
+
+        // ---- Screen space ----
         drawHud();
         drawCrosshair();
     }

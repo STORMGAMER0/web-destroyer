@@ -2,7 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const path = require('path');
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Serve your public assets (spritesheet, json data, game engine logic)
 app.use(express.static(path.join(__dirname, 'public')));
@@ -27,13 +27,22 @@ app.get('/proxy', async (req, res) => {
 
         // Clean out security features that block iframes or external scripts
         html = html.replace(/<meta[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/gi, '');
-        
-        // CRUCIAL: Inject your frontend MUGEN game engine right before the website's closing </body> tag
-        const injectScript = `
-            <script src="/game-engine.js"></script>
-            </body>
-        `;
-        html = html.replace('</body>', injectScript);
+
+        // Point the page's relative links (CSS, images, scripts) back at the real site,
+        // using the final URL after any redirects
+        const finalUrl = (response.request.res && response.request.res.responseUrl) || targetUrl;
+        const baseTag = `<base href="${finalUrl.replace(/"/g, '&quot;')}">`;
+        html = /<head[^>]*>/i.test(html)
+            ? html.replace(/<head[^>]*>/i, match => match + baseTag)
+            : baseTag + html;
+
+        // CRUCIAL: Inject your frontend MUGEN game engine right before the website's closing </body> tag.
+        // The <base> tag above would send a relative src to the target site, so use our own origin.
+        const ownOrigin = `${req.protocol}://${req.get('host')}`;
+        const injectScript = `<script src="${ownOrigin}/game-engine.js"></script>`;
+        html = /<\/body>/i.test(html)
+            ? html.replace(/<\/body>/i, injectScript + '</body>')
+            : html + injectScript;
 
         // Send the modified, vulnerable website back to the browser
         res.send(html);
