@@ -90,6 +90,138 @@
     }
 
     // ==========================================
+    // 2b. SOUND
+    // ==========================================
+    // Character sounds come from the MUGEN .snd (tools/snd_extract.py) and load in the
+    // background. Destruction sounds (tearing, clinks, thuds, crackle) are generated here.
+    // Browsers only allow audio after the player's first key press or click.
+    const audio = new (window.AudioContext || window.webkitAudioContext)();
+    const master = audio.createGain();
+    master.connect(audio.destination);
+    const sfx = {};          // name -> AudioBuffer
+    const lastPlayed = {};   // name -> audio time it last started, so repeats don't stack
+    const MAX_VOICES = 24;
+    let liveVoices = 0;
+
+    let volume = parseFloat(readSetting('wd-volume', '0.7'));
+    let muted = readSetting('wd-muted', '0') === '1';
+    function applyVolume() {
+        master.gain.value = muted ? 0 : volume;
+    }
+    applyVolume();
+
+    (async () => {
+        try {
+            const list = await (await fetch(ASSET_DIR + 'sounds/sounds.json')).json();
+            await Promise.all(Object.entries(list).map(async ([name, file]) => {
+                const data = await (await fetch(ASSET_DIR + 'sounds/' + file)).arrayBuffer();
+                sfx[name] = await audio.decodeAudioData(data);
+            }));
+        } catch (err) {
+            console.warn('Sounds failed to load:', err);
+        }
+    })();
+
+    const unlockAudio = () => { if (audio.state !== 'running') audio.resume(); };
+    window.addEventListener('keydown', unlockAudio, true);
+    window.addEventListener('mousedown', unlockAudio, true);
+
+    function canPlay(name, minGap) {
+        if (audio.state !== 'running' || liveVoices >= MAX_VOICES) return false;
+        if (audio.currentTime - (lastPlayed[name] ?? -1) < minGap) return false;
+        lastPlayed[name] = audio.currentTime;
+        return true;
+    }
+
+    function track(src) {
+        liveVoices++;
+        src.onended = () => liveVoices--;
+    }
+
+    function playSound(name, { volume: v = 1, rate = 1, minGap = 0.03 } = {}) {
+        const buf = sfx[name];
+        if (!buf || !canPlay(name, minGap)) return;
+        const src = audio.createBufferSource();
+        src.buffer = buf;
+        src.playbackRate.value = rate;
+        const gain = audio.createGain();
+        gain.gain.value = v;
+        src.connect(gain).connect(master);
+        track(src);
+        src.start();
+    }
+
+    // Quieter the further a sound is from the middle of the screen (page coordinates)
+    function nearVolume(x, y) {
+        const cx = window.scrollX + window.innerWidth / 2, cy = window.scrollY + window.innerHeight / 2;
+        return Math.max(0, 1 - Math.hypot(x - cx, y - cy) / 1600);
+    }
+
+    const noiseBuffer = (() => {
+        const buf = audio.createBuffer(1, audio.sampleRate, audio.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        return buf;
+    })();
+
+    // A short filtered burst of noise: the building block for tearing, thuds and crackle
+    function noiseBurst({ duration, freq, q = 1, type = 'bandpass', volume: v }) {
+        if (audio.state !== 'running' || liveVoices >= MAX_VOICES) return;
+        const t = audio.currentTime;
+        const src = audio.createBufferSource();
+        src.buffer = noiseBuffer;
+        src.playbackRate.value = 0.6 + Math.random() * 0.8;
+        const filter = audio.createBiquadFilter();
+        filter.type = type;
+        filter.frequency.value = freq;
+        filter.Q.value = q;
+        const gain = audio.createGain();
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(v, t + 0.005);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+        src.connect(filter).connect(gain).connect(master);
+        track(src);
+        src.start(t, Math.random() * 0.5);
+        src.stop(t + duration + 0.05);
+    }
+
+    const generated = {
+        // Paper ripping: a few quick bright bursts
+        tear(v = 1) {
+            if (!canPlay('tear', 0.08)) return;
+            for (let i = 0; i < 4; i++) {
+                setTimeout(() => noiseBurst({ duration: 0.05 + Math.random() * 0.09, freq: 2200 + Math.random() * 2600, q: 0.8, volume: 0.22 * v }), i * 35 + Math.random() * 25);
+            }
+        },
+        // Rubble landing: a low, dull knock
+        thud(v = 1) {
+            if (!canPlay('thud', 0.05)) return;
+            noiseBurst({ duration: 0.12, freq: 260, q: 0.7, type: 'lowpass', volume: 0.3 * v });
+        },
+        // A letter landing: a tiny high tick
+        clink(v = 1) {
+            if (!canPlay('clink', 0.04) || liveVoices >= MAX_VOICES) return;
+            const t = audio.currentTime;
+            const osc = audio.createOscillator();
+            osc.type = 'triangle';
+            osc.frequency.value = 1700 + Math.random() * 1600;
+            const gain = audio.createGain();
+            gain.gain.setValueAtTime(0.0001, t);
+            gain.gain.exponentialRampToValueAtTime(0.06 * v, t + 0.003);
+            gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+            osc.connect(gain).connect(master);
+            track(osc);
+            osc.start(t);
+            osc.stop(t + 0.08);
+        },
+        // Fire: random dry pops
+        crackle(v = 1) {
+            if (!canPlay('crackle', 0.03)) return;
+            noiseBurst({ duration: 0.025 + Math.random() * 0.03, freq: 2500 + Math.random() * 3500, q: 2, volume: 0.07 * v });
+        }
+    };
+
+    // ==========================================
     // 3. ANIMATION PLAYER
     // ==========================================
     function createAnim(name, startIndex = 0) {
@@ -343,6 +475,10 @@
             .row button { flex: 1; background: #ffffff14; color: #fff; border: 1px solid #ffffff2a;
                           border-radius: 5px; padding: 6px 4px; cursor: pointer; }
             .row button.on { background: #ff9800; color: #000; border-color: #ff9800; }
+            .sound { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+            .sound button { background: #ffffff14; color: #fff; border: 1px solid #ffffff2a; border-radius: 5px;
+                            padding: 5px 8px; cursor: pointer; min-width: 64px; }
+            .sound input { flex: 1; accent-color: #ff9800; cursor: pointer; }
             .keys { color: #d8d0ee; font-weight: 500; }
             .keys b { color: #fff; }
         </style>
@@ -350,6 +486,11 @@
         <div class="panel" hidden>
             <h4>Background</h4>
             <div class="row" id="bgs"></div>
+            <h4>Sound</h4>
+            <div class="sound">
+                <button id="mute"></button>
+                <input id="volume" type="range" min="0" max="1" step="0.05" aria-label="Volume">
+            </div>
             <h4>Controls</h4>
             <div class="keys">
                 <b>A / D</b> run · <b>W / Space</b> jump, hold to fly<br>
@@ -365,8 +506,26 @@
         b.addEventListener('click', () => setBackground(name));
         bgRow.appendChild(b);
     }
+    const muteButton = ui.querySelector('#mute');
+    const volumeSlider = ui.querySelector('#volume');
+    volumeSlider.value = volume;
+    volumeSlider.addEventListener('input', () => {
+        volume = parseFloat(volumeSlider.value);
+        writeSetting('wd-volume', String(volume));
+        applyVolume();
+    });
+    // Keys pressed on the slider shouldn't also move Naruto
+    volumeSlider.addEventListener('keydown', e => e.stopPropagation());
+    muteButton.addEventListener('click', () => {
+        muted = !muted;
+        writeSetting('wd-muted', muted ? '1' : '0');
+        applyVolume();
+        updateSettingsUi();
+    });
+
     function updateSettingsUi() {
         for (const b of bgRow.children) b.classList.toggle('on', b.textContent === currentBg);
+        muteButton.textContent = muted ? 'Unmute' : 'Mute';
     }
     setBackground(currentBg);
 
@@ -764,6 +923,8 @@
         if (land === null && bottom >= floor) land = floor; // bottom of the page
         if (land === null) return;
         o.y = land - b.maxY;
+        const v = nearVolume(o.x, o.y) * Math.min(1, o.vy / 8);
+        if (v > 0.05) o.ch ? generated.clink(v) : generated.thud(v);
         if (o.vy > 2.5) {
             o.vy = -o.vy * 0.25; // small bounce
             o.vx *= 0.55;
@@ -1035,15 +1196,21 @@
         faceTarget(tx);
         startCast('rs_throw');
         spawnEffect('charge', player.x, player.y - 60, { life: 30 });
+        playSound('voice_rasenshuriken');
+        after(5, () => playSound('rs_spin', { volume: 0.5 }));
 
         // rs_throw frame 3 (after 5 + 25 + 3 ticks) is the release
         after(33, () => {
+            playSound('throw', { volume: 0.6 });
             const startX = player.x + 20 * player.direction;
             const startY = player.y - 55;
             launch(startX, startY, tx, ty, 9, [
                 { name: 'rs_core', scale: 0.8 },
                 { name: 'rs_spin', scale: 0.9 },
             ], (x, y) => {
+                const v = Math.max(0.3, nearVolume(x, y));
+                playSound('rs_hit', { volume: 0.8 * v });
+                after(20, () => { playSound('blast_rumble', { volume: 0.6 * v }); playSound('rs_hit_tail', { volume: 0.5 * v }); });
                 spawnEffect('rs_flash', x, y, { scale: 0.5 });
                 spawnEffect('rs_explode', x, y, { scale: 1.3 });
                 createExplosion(x, y, { radius: 120, colors: ['#e3f6ff', '#4fc3f7', '#ffffff'] });
@@ -1063,8 +1230,13 @@
         spawnEffect('tbb_pillar', baseX, baseY, { behind: true });
         spawnEffect('tbb_sparks', baseX, baseY, { behind: true });
         spawnEffect('tbb_fox', baseX - 120 * facing, baseY, { facing, behind: true, life: 100, fade: 20 });
+        playSound('voice_tbb_call');
+        playSound('charge_small', { volume: 0.5 });
+        after(20, () => playSound('fox_appear', { volume: 0.6 }));
 
         after(45, () => {
+            playSound('voice_tbb_fire');
+            playSound('fox_fire', { volume: 0.6 });
             const mouthX = baseX - 120 * facing + 220 * facing;
             const mouthY = baseY - 170;
             spawnEffect('charge', mouthX, mouthY, { scale: 1.6, life: 30 });
@@ -1072,6 +1244,10 @@
                 { name: 'tbb_glow', scale: 3, grow: true },
                 { name: 'tbb_ball', scale: 0.35, grow: true },
             ], (x, y) => {
+                const v = Math.max(0.3, nearVolume(x, y));
+                playSound('bomb_hit', { volume: 0.8 * v });
+                playSound('bomb_boom', { volume: 0.8 * v });
+                after(25, () => playSound('bomb_boom_end', { volume: 0.7 * v }));
                 spawnEffect('tbb_explode', x, y, { centered: true, scale: 0.6, life: 40, fade: 25 });
                 spawnEffect('shock2', x, y, { scale: 1.5 });
                 spawnEffect('shock', x, y, { scale: 3 });
@@ -1092,14 +1268,22 @@
 
         spawnEffect('charge', baseX, baseY - 40, { scale: 2, life: 40 });
         spawnEffect('kb_fox', baseX, baseY, { facing, life: 85, fade: 15 });
+        playSound('voice_kurama');
+        playSound('charge_big', { volume: 0.5 });
 
         after(40, () => {
+            playSound('fox_fire', { volume: 0.7 });
             const mouthX = baseX + 220 * facing;
             const mouthY = baseY - 170;
             launch(mouthX, mouthY, tx, ty, 12, [
                 { name: 'tbb_glow', scale: 2 },
                 { name: 'tbb_ball', scale: 0.25 },
             ], (x, y) => {
+                const v = Math.max(0.3, nearVolume(x, y));
+                playSound('bomb_hit', { volume: 0.8 * v });
+                playSound('bomb_boom', { volume: 0.7 * v });
+                playSound('rs_hit_tail', { volume: 0.5 * v });
+                after(25, () => playSound('bomb_boom_end', { volume: 0.7 * v }));
                 spawnEffect('kb_explode', x, y, { centered: true });
                 spawnEffect('shock', x, y, { scale: 2.5 });
                 createExplosion(x, y, { radius: 150, colors: ['#ffd54f', '#ff9800', '#ffffff'] });
@@ -1121,15 +1305,26 @@
         spawnEffect('tbb_pillar', baseX, baseY, { behind: true });
         spawnEffect('tbb_sparks', baseX, baseY, { behind: true });
         spawnEffect('tw_tails', baseX - 10 * facing, baseY - 150, { facing, behind: true, life: 100, fade: 20 });
+        playSound('voice_twin_start');
+        playSound('charge_big', { volume: 0.5 });
+        after(5, () => playSound('twin_charge', { volume: 0.5 }));
+        after(10, () => playSound('dash', { volume: 0.5 }));
+        after(20, () => playSound('fox_appear', { volume: 0.5 }));
 
         // tw_form reaches its held pose after 30 + 5 + 5 ticks
         after(40, () => {
+            playSound('voice_twin_fire');
+            playSound('twin_fire', { volume: 0.7 });
+            playSound('twin_ball', { volume: 0.6 });
             const startX = baseX + 60 * facing;
             const startY = baseY - 230;
             launch(startX, startY - 40, tx, ty, 8, [
                 { name: 'rs_core', scale: 1.4 },
                 { name: 'rs_spin', scale: 1.8 },
             ], (x, y) => {
+                const v = Math.max(0.3, nearVolume(x, y));
+                playSound('rs_hit', { volume: 0.9 * v });
+                after(20, () => { playSound('blast_rumble', { volume: 0.7 * v }); playSound('bomb_boom_end', { volume: 0.7 * v }); });
                 spawnEffect('rs_flash', x, y, { scale: 0.8 });
                 spawnEffect('rs_explode', x, y, { scale: 2.2 });
                 spawnEffect('shock2', x, y, { scale: 2 });
@@ -1140,6 +1335,7 @@
                 { name: 'tbb_ball', scale: 0.4, grow: true },
                 { name: 'tw_wind', scale: 1 },
             ], (x, y) => {
+                playSound('bomb_hit', { volume: 0.7 * Math.max(0.3, nearVolume(x, y)) });
                 spawnEffect('shock', x, y, { scale: 3 });
                 createExplosion(x, y, { radius: 140, colors: ['#b388ff', '#7c4dff'] });
             });
@@ -1152,9 +1348,14 @@
         faceTarget(tx);
         startCast('rs_throw');
         spawnEffect('charge', player.x, player.y - 60, { life: 30 });
+        playSound('voice_lava');
+        playSound('charge_big', { volume: 0.5 });
+        after(15, () => playSound('lava_sizzle', { volume: 0.6 }));
 
         // Same throw as the Rasenshuriken: release on rs_throw frame 3
         after(33, () => {
+            playSound('throw', { volume: 0.6 });
+            playSound('rs_spin', { volume: 0.4 });
             const startX = player.x + 20 * player.direction;
             const startY = player.y - 55;
             launch(startX, startY, tx, ty, 8, [
@@ -1162,6 +1363,11 @@
                 { name: 'lv_core', scale: 0.9 },
                 { name: 'lv_wind', scale: 0.8 },
             ], (x, y) => {
+                const v = Math.max(0.3, nearVolume(x, y));
+                playSound('rs_hit', { volume: 0.8 * v });
+                playSound('bomb_hit', { volume: 0.6 * v });
+                playSound('bomb_boom', { volume: 0.6 * v });
+                after(20, () => playSound('blast_rumble', { volume: 0.6 * v }));
                 spawnEffect('lv_ring', x, y, { centered: true, scale: 1.2 });
                 spawnEffect('lv_dome', x, y, { scale: 1.1 });
                 spawnEffect('tbb_explode', x, y, { centered: true, scale: 0.45, life: 30, fade: 20 });
@@ -1177,6 +1383,7 @@
     // Punch a burning hole, tear paper shards out of it and shake letters loose around it.
     function createExplosion(x, y, { radius = 60, colors = ['#4fc3f7', '#ffffff'] } = {}) {
         const holeR = Math.round(radius * 0.55);
+        generated.tear(nearVolume(x, y));
         disturbDebris(x, y, radius * 1.4, 9);
         addCrater(x, y, holeR);
         spawnShards(x, y, holeR);
@@ -1234,6 +1441,8 @@
 
     function updatePlayer() {
         const jumpHeld = keys['w'] || keys['arrowup'] || keys[' '];
+        const wasGrounded = player.isGrounded;
+        const airTicksBefore = player.airTicks;
 
         if (!player.casting) {
             player.vx = 0;
@@ -1248,9 +1457,14 @@
             if (jumpHeld && player.isGrounded) {
                 player.vy = player.jumpForce;
                 player.isGrounded = false;
+                playSound('jump', { volume: 0.6 });
             } else if (jumpHeld && player.airTicks > 12) {
                 // Hold jump to fly: thrust beats gravity, capped climb speed
                 player.vy = Math.max(player.vy - 1.0, -5);
+                if (!player.flying) {
+                    player.flying = true;
+                    playSound('fly', { volume: 0.5 });
+                }
             }
         }
 
@@ -1276,6 +1490,8 @@
             player.isGrounded = true;
         }
         player.airTicks = player.isGrounded ? 0 : player.airTicks + 1;
+        if (player.isGrounded) player.flying = false;
+        if (player.isGrounded && !wasGrounded && airTicksBefore > 8) playSound('land', { volume: 0.7 });
 
         // player.x is the feet axis, so keep half a body width from each edge
         const maxX = Math.max(html.scrollWidth, window.innerWidth) - 30;
@@ -1288,6 +1504,10 @@
             else setPlayerAnim('idle');
         }
         stepAnim(player.anim);
+        // Footsteps on the frames where a foot hits the ground (the original plays them on 3 and 6)
+        if (player.anim.name === 'run' && player.anim.tick === 0 && (player.anim.index === 2 || player.anim.index === 5)) {
+            playSound('step', { volume: 0.45, rate: 0.92 + Math.random() * 0.16, minGap: 0 });
+        }
 
         // Camera: while Naruto moves, keep his feet between two lines on screen. Crossing a line
         // scrolls the page by exactly the overshoot, so he stays put and the page glides.
@@ -1328,6 +1548,7 @@
             c.age++;
             if (c.y < viewTop || c.y > viewBottom + 100 || flames.length > 1800) continue;
             const burning = c.age < c.burn;
+            if (burning && Math.random() < 0.12) generated.crackle(nearVolume(c.x, c.y));
             let n = burning ? c.R * 0.012 : c.R * 0.0015;
             while (n > 0) {
                 if (Math.random() < n) spawnFlame(c);
