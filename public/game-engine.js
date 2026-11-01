@@ -23,6 +23,10 @@
     // The backdrop shows through holes and above the page; body keeps the page colour.
     html.style.setProperty('background', '#120a24', 'important');
     html.style.setProperty('padding-top', '38vh', 'important');
+    // Sites with smooth scrolling turn every camera move into a slow animation that restarts
+    // each frame and never catches up; the camera needs instant scrolling
+    html.style.setProperty('scroll-behavior', 'auto', 'important');
+    body.style.setProperty('scroll-behavior', 'auto', 'important');
     // Page y where the website starts. Everything above is backdrop: never solid, never damaged.
     const skyHeight = () => parseFloat(getComputedStyle(html).paddingTop) || 0;
     body.style.setProperty('background-color', pageBg, 'important');
@@ -579,11 +583,13 @@
             set('width', r.width + 'px');
             // Offsets are relative to the containing block; a static <body> means the page itself
             const parent = el.offsetParent;
+            // A fixed element's spot on screen is where the site meant it on its page, which now
+            // starts below the sky strip, so it moves down by the sky's height either way
             let ox = -sx, oy = -sy - skyHeight();
             if (parent && !(parent === body && getComputedStyle(body).position === 'static')) {
                 const pr = parent.getBoundingClientRect();
                 ox = pr.left + parent.clientLeft;
-                oy = pr.top + parent.clientTop;
+                oy = pr.top + parent.clientTop - skyHeight();
             }
             set('left', (r.left - ox) + 'px');
             set('top', (r.top - oy) + 'px');
@@ -1698,6 +1704,11 @@
 
         // player.x is the feet axis, so keep half a body width from each edge
         const maxX = Math.max(html.scrollWidth, window.innerWidth) - 30;
+        // Ceiling: the top of the sky, with room for his head (feet axis, ~90px tall)
+        if (player.y < 100) {
+            player.y = 100;
+            player.vy = Math.max(player.vy, 0);
+        }
         if (player.x < 30) player.x = 30;
         if (player.x > maxX) player.x = maxX;
 
