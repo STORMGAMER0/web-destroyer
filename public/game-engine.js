@@ -23,6 +23,8 @@
     // The backdrop shows through holes and above the page; body keeps the page colour.
     html.style.setProperty('background', '#120a24', 'important');
     html.style.setProperty('padding-top', '38vh', 'important');
+    // Page y where the website starts. Everything above is backdrop: never solid, never damaged.
+    const skyHeight = () => parseFloat(getComputedStyle(html).paddingTop) || 0;
     body.style.setProperty('background-color', pageBg, 'important');
     html.style.cursor = 'none';
     body.style.cursor = 'none';
@@ -397,7 +399,7 @@
             set('width', r.width + 'px');
             // Offsets are relative to the containing block; a static <body> means the page itself
             const parent = el.offsetParent;
-            let ox = -sx, oy = -sy;
+            let ox = -sx, oy = -sy - skyHeight();
             if (parent && !(parent === body && getComputedStyle(body).position === 'static')) {
                 const pr = parent.getBoundingClientRect();
                 ox = pr.left + parent.clientLeft;
@@ -459,10 +461,11 @@
             nextPlatforms.push({ x1: r.left + sx, x2: r.right + sx, y: r.top + sy });
         }
 
-        platforms = nextPlatforms;
+        const sky = skyHeight();
+        platforms = nextPlatforms.filter(pl => pl.y >= sky - 1);
         textBoxes = nextText;
         platformBands = new Map();
-        for (const pl of nextPlatforms) {
+        for (const pl of platforms) {
             const k = Math.floor(pl.y / BAND);
             if (!platformBands.has(k)) platformBands.set(k, []);
             platformBands.get(k).push(pl);
@@ -519,7 +522,7 @@
     }
 
     function inHole(x, y) {
-        return craterField(x, y).f < 0;
+        return y >= skyHeight() && craterField(x, y).f < 0;
     }
 
     function ensureMapSize() {
@@ -544,6 +547,7 @@
         if (w <= 0 || h <= 0) return;
         const near = craters.filter(c => c.x + c.R * 1.5 + c.soot > x0 && c.x - c.R * 1.5 - c.soot < x1 &&
                                          c.y + c.R * 1.5 + c.soot > y0 && c.y - c.R * 1.5 - c.soot < y1);
+        const sky = skyHeight();
         const holes = new ImageData(w, h);
         const decal = new ImageData(w, h);
         const put = (img, p, r, g, b, a) => { img.data[p] = r; img.data[p + 1] = g; img.data[p + 2] = b; img.data[p + 3] = a; };
@@ -552,6 +556,7 @@
             for (let mx = 0; mx < w; mx++) {
                 const gx = mx0 + mx, gy = my0 + my;
                 const px = (gx + 0.5) * DMG, py = (gy + 0.5) * DMG;
+                if (py < sky) continue;
                 const { f: raw, owner: c } = craterField(px, py, near);
                 if (!c) continue;
                 const f = raw + (hash(gx, gy) - 0.5) * DMG * 1.6; // ragged pixel edge
@@ -866,7 +871,7 @@
         const d = radiusAt(c, a) * (0.97 + Math.random() * 0.1);
         const x = c.x + Math.cos(a) * d;
         const y = c.y + Math.sin(a) * d;
-        if (craterField(x, y).f < -DMG * 2) return;
+        if (y < skyHeight() || craterField(x, y).f < -DMG * 2) return;
         flames.push({
             x, y,
             vx: (Math.random() - 0.5) * 0.4,
