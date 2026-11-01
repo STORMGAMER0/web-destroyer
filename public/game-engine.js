@@ -43,9 +43,19 @@
     const ctx = canvas.getContext('2d');
     Object.assign(canvas.style, {
         position: 'fixed', top: '0', left: '0', width: '100vw', height: '100vh',
-        zIndex: '2147483646', pointerEvents: 'none'
+        // The canvas catches the mouse across the whole screen, so the page underneath never
+        // sees it: no hover effects, no hand cursor. Our window listeners still get every event.
+        zIndex: '2147483646', pointerEvents: 'auto', cursor: 'none'
     });
     html.appendChild(canvas);
+
+    // The page element under a screen point, looking through our own layers
+    function pageElementAt(screenX, screenY) {
+        for (const el of document.elementsFromPoint(screenX, screenY)) {
+            if (el !== canvas && el !== bgCanvas && el !== html) return el;
+        }
+        return null;
+    }
 
     function resizeCanvas() {
         canvas.width = window.innerWidth;
@@ -642,8 +652,8 @@
 
     // The colour actually showing at a screen point: the nearest opaque background behind it
     function colorAt(screenX, screenY) {
-        let el = document.elementFromPoint(screenX, screenY);
-        if (!el || el === html || el === canvas) return null;
+        let el = pageElementAt(screenX, screenY);
+        if (!el) return null;
         for (; el && el !== html; el = el.parentElement) {
             const c = getComputedStyle(el).backgroundColor;
             if (c && c !== 'transparent' && !/rgba\(.*,\s*0\)$/.test(c)) return c;
@@ -679,7 +689,7 @@
             }
 
             // Use the image actually visible at this spot (carousels stack hidden images)
-            const under = document.elementFromPoint(x - window.scrollX, y - window.scrollY);
+            const under = pageElementAt(x - window.scrollX, y - window.scrollY);
             let image = null;
             if (under && under.tagName === 'IMG' && under.complete && under.naturalWidth) {
                 const ir = under.getBoundingClientRect();
