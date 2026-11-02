@@ -787,17 +787,30 @@
         decalMap.getContext('2d').putImageData(decal, mx0, my0);
     }
 
+    const FRESH_STEP = 6; // sampling grid for newly destroyed page, in page pixels
     function addCrater(x, y, R) {
         const waves = [];
         for (let k = 2; k <= 6; k++) {
             waves.push({ k, a: (0.04 + Math.random() * 0.07) / (k * 0.45), p: Math.random() * Math.PI * 2 });
         }
         const c = { x, y, R, waves, soot: R * 0.6 + 10, age: 0, burn: 300 + Math.random() * 300 };
+        // The page this blast actually removes: inside the new blob, not sky, not already a hole.
+        // Debris comes only from here, so hitting the same spot again tears nothing new.
+        const before = craters.slice();
+        const fresh = [];
+        const reach0 = R * 1.5;
+        for (let py = y - reach0; py <= y + reach0; py += FRESH_STEP) {
+            if (py < pageTop) continue;
+            for (let px = x - reach0; px <= x + reach0; px += FRESH_STEP) {
+                if (craterField(px, py, [c]).f < 0 && craterField(px, py, before).f >= 0) fresh.push([px, py]);
+            }
+        }
         craters.push(c);
         disturbDebris(x, y, R * 1.6 + 40, 0);
         ensureMapSize();
         const reach = R * 1.5 + c.soot + DMG * 2;
         paintDamage(x - reach, y - reach, x + reach, y + reach);
+        return { c, before, fresh };
     }
 
     // Paint the backdrop into the holes at low resolution, add soot, scale up with hard edges
@@ -838,7 +851,7 @@
     const flames = [];
     const puffs = [];       // grey smoke clouds drifting off blasts and burning edges
     const particles = [];
-    const MAX_LETTERS_PER_BLAST = 140;
+    const MAX_LETTERS_PER_BLAST = 220;
 
     const MAX_SHARDS = 350;
     const MAX_LETTERS = 1200;
@@ -856,18 +869,19 @@
 
     // Torn pieces of whatever was hit (its colour, or the image showing there). They fall,
     // land on ledges and stay as rubble.
-    function spawnShards(cx, cy, r) {
-        const count = 6 + Math.floor(r / 9);
+    function spawnShards(cx, cy, r, fresh) {
+        if (!fresh.length) return; // nothing new was destroyed: nothing to tear out
+        const area = fresh.length * FRESH_STEP * FRESH_STEP;
+        const count = Math.min(6 + Math.floor(r / 9), Math.ceil(area / 450));
+        const maxSize = Math.sqrt(area / count) * 1.3; // a sliver of new damage gives small pieces
         for (let i = 0; i < count; i++) {
-            const a = Math.random() * Math.PI * 2;
-            const d = r * (0.5 + Math.random() * 0.6);
-            const x = cx + Math.cos(a) * d;
-            const y = cy + Math.sin(a) * d;
+            const [x, y] = fresh[Math.floor(Math.random() * fresh.length)];
+            const a = Math.atan2(y - cy, x - cx) + (Math.random() - 0.5) * 0.6;
             const color = colorAt(x - window.scrollX, y - window.scrollY);
-            if (!color) continue; // blast in the sky: no page here to tear
+            if (!color) continue;
 
             // Mostly plank-like quads, some triangles
-            const size = 8 + Math.random() * r * 0.4;
+            const size = Math.min(8 + Math.random() * r * 0.4, maxSize);
             const pts = [];
             if (Math.random() < 0.7) {
                 const w = size * (0.8 + Math.random() * 1.4), h = size * (0.25 + Math.random() * 0.45);
@@ -1005,8 +1019,11 @@
         }
     }
 
-    // Wrap individual characters near the blast in hidden-able spans and queue them to fall
-    function loosenLetters(cx, cy, rIn, rOut) {
+    // Wrap individual characters in hidden-able spans and queue them to fall. Letters the blast
+    // destroyed (inside the new hole, not in an older one) all fly out; a few right at the new
+    // rim shake loose. Letters already under a hole were destroyed before and stay gone.
+    function loosenLetters({ c, before }) {
+        const cx = c.x, cy = c.y, rim = c.R * 0.3, rOut = c.R * 1.5 + rim;
         const range = document.createRange();
         const picks = [];
         for (const t of textBoxes) {
@@ -1023,23 +1040,28 @@
                 if (!r.width) continue;
                 const px = r.left + r.width / 2 + window.scrollX;
                 const py = r.top + r.height / 2 + window.scrollY;
-                const d = Math.hypot(px - cx, py - cy);
-                if (d < rIn || d > rOut) continue;
-                if (Math.random() > 1 - ((d - rIn) / (rOut - rIn)) * 0.85) continue;
-                picks.push({ node, i });
+                if (py < pageTop) continue;
+                const f = craterField(px, py, [c]).f;
+                if (f > rim || craterField(px, py, before).f < 0) continue;
+                const inside = f < 0;
+                if (!inside && Math.random() > 0.35 * (1 - f / rim)) continue;
+                picks.push({ node, i, inside });
             }
         }
 
         // Split from the highest index down so earlier indices in the same node stay valid
         picks.sort((a, b) => a.node === b.node ? b.i - a.i : 0);
-        for (const { node, i } of picks) {
+        for (const { node, i, inside } of picks) {
             if (!node.isConnected || i >= node.data.length) continue;
             const ch = node.splitText(i);
             ch.splitText(1);
             const span = document.createElement('span');
             ch.replaceWith(span);
             span.appendChild(ch);
-            letterQueue.push({ span, delay: Math.floor(Math.random() * 70) });
+            // Blasted letters leave with the blast, outward; rim letters drop a little later
+            letterQueue.push(inside
+                ? { span, delay: Math.floor(Math.random() * 4), from: { x: cx, y: cy } }
+                : { span, delay: 10 + Math.floor(Math.random() * 60) });
         }
     }
 
@@ -1049,21 +1071,23 @@
         return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]];
     }
 
-    function dropLetter(span) {
+    function dropLetter(span, from) {
         if (!span.isConnected) return;
         const r = span.getBoundingClientRect();
         const cs = getComputedStyle(span);
         span.style.visibility = 'hidden';
         if (!r.width) return;
+        const x = r.left + r.width / 2 + window.scrollX, y = r.top + r.height / 2 + window.scrollY;
+        const a = from ? Math.atan2(y - from.y, x - from.x) : 0;
+        const kick = from ? 3 + Math.random() * 5 : 0;
         letters.push({
             ch: span.textContent,
             font: cs.font || `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`,
             color: cs.color,
-            x: r.left + r.width / 2 + window.scrollX,
-            y: r.top + r.height / 2 + window.scrollY,
+            x, y,
             pts: glyphBox(r.width, r.height),
-            vx: (Math.random() - 0.5) * 3,
-            vy: -1 - Math.random() * 3,
+            vx: (Math.random() - 0.5) * 3 + Math.cos(a) * kick,
+            vy: -1 - Math.random() * 3 + Math.sin(a) * kick,
             rot: 0, vr: (Math.random() - 0.5) * 0.3,
             resting: false
         });
@@ -1871,9 +1895,9 @@
         const holeR = Math.round(radius * 0.55);
         generated.tear(nearVolume(x, y));
         disturbDebris(x, y, radius * 1.4, 9);
-        addCrater(x, y, holeR);
-        spawnShards(x, y, holeR);
-        loosenLetters(x, y, holeR * 0.85, holeR * 1.9);
+        const blast = addCrater(x, y, holeR);
+        spawnShards(x, y, holeR, blast.fresh);
+        loosenLetters(blast);
         for (let i = 0; i < 8 + holeR / 10; i++) {
             const a = Math.random() * Math.PI * 2;
             const d = holeR * (0.8 + Math.random() * 0.7);
@@ -2022,7 +2046,7 @@
         // Letters drop one at a time
         for (let i = letterQueue.length - 1; i >= 0; i--) {
             if (--letterQueue[i].delay <= 0) {
-                dropLetter(letterQueue[i].span);
+                dropLetter(letterQueue[i].span, letterQueue[i].from);
                 letterQueue.splice(i, 1);
             }
         }
