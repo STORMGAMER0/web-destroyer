@@ -27,6 +27,10 @@
     // each frame and never catches up; the camera needs instant scrolling
     html.style.setProperty('scroll-behavior', 'auto', 'important');
     body.style.setProperty('scroll-behavior', 'auto', 'important');
+    // Only the camera moves the page: no scrollbars anywhere (the mouse wheel picks attacks)
+    const noScrollbars = document.createElement('style');
+    noScrollbars.textContent = '* { scrollbar-width: none !important; } *::-webkit-scrollbar { display: none !important; }';
+    document.head.appendChild(noScrollbars);
     // Page y where the website starts. Everything above is backdrop: never solid, never damaged.
     const skyHeight = () => parseFloat(getComputedStyle(html).paddingTop) || 0;
     // A top margin on <body> (or one its first child pushes through it) also shows the backdrop,
@@ -1517,7 +1521,7 @@
     }
     let selectedJutsu = 0;
 
-    const GAME_KEYS = new Set([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
+    const GAME_KEYS = new Set([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'pageup', 'pagedown', 'home', 'end']);
     const keys = {};
     window.addEventListener('keydown', e => {
         const k = e.key.toLowerCase();
@@ -1529,6 +1533,21 @@
         if ((k === 's' || k === 'arrowdown') && player.isGrounded) player.dropTicks = 14;
     });
     window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+    // The wheel never scrolls the page; each notch picks the next or previous attack. Trackpads
+    // send many small deltas, so they add up to a notch first.
+    let wheelSum = 0;
+    window.addEventListener('wheel', e => {
+        if (isUiEvent(e)) return;
+        e.preventDefault();
+        const list = jutsuList();
+        if (!list.length) return;
+        wheelSum += e.deltaMode === 0 ? e.deltaY : e.deltaY * 40;
+        if (Math.abs(wheelSum) < 40) return;
+        const step = Math.sign(wheelSum);
+        wheelSum = 0;
+        selectedJutsu = (selectedJutsu + step + list.length) % list.length;
+    }, { passive: false, capture: true });
 
     window.addEventListener('mousemove', e => {
         mouse.x = e.clientX;
