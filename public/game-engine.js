@@ -567,10 +567,12 @@
     // stays attached to the page while it scrolls. Rendering subtracts the scroll.
     let platforms = [];   // { x1, x2, y } one-way ledges (land on them from above)
     let textBoxes = [];   // { node, x1, y1, x2, y2 } text nodes, for knocking letters loose
+    let wallBands = new Map(); // card-sized solid boxes { x1, x2, y1, y2 }: their sides stop broken-off cards
     let platformBands = new Map(); // ledges grouped by height, for fast landing checks
     const BAND = 64;
 
     const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'IFRAME']);
+    const LOOSE = 'data-wd-loose'; // marks page elements knocked off as debris (see section 8)
 
     // Sticky headers and fixed bars would follow the screen. Pin them to the page instead,
     // where they currently are, so they scroll away and become ground like everything else.
@@ -612,6 +614,7 @@
         const sx = window.scrollX, sy = window.scrollY;
         const nextPlatforms = [];
         const nextText = [];
+        const nextWalls = [];
         const range = document.createRange();
         unpinBars();
 
@@ -623,6 +626,7 @@
             acceptNode(node) {
                 const parent = node.parentElement;
                 if (!parent || SKIP_TAGS.has(parent.tagName) || !node.data.trim()) return NodeFilter.FILTER_REJECT;
+                if (parent.closest(`[${LOOSE}]`)) return NodeFilter.FILTER_REJECT; // knocked off the page
                 return NodeFilter.FILTER_ACCEPT;
             }
         });
@@ -643,6 +647,7 @@
         const boxes = body.querySelectorAll('img, svg, video, canvas, input, button, select, textarea, hr, table, th, td, header, nav, div, section, aside');
         for (let i = 0; i < boxes.length && i < 6000; i++) {
             const el = boxes[i];
+            if (el.closest(`[${LOOSE}]`)) continue;
             const r = el.getBoundingClientRect();
             if (r.width < 12 || r.height < 4) continue;
             const tag = el.tagName;
@@ -657,12 +662,22 @@
             }
             if (!solid) continue;
             nextPlatforms.push({ x1: r.left + sx, x2: r.right + sx, y: r.top + sy });
+            if (r.width < window.innerWidth * 0.8 && r.height < window.innerHeight * 1.2) {
+                nextWalls.push({ x1: r.left + sx, x2: r.right + sx, y1: r.top + sy, y2: r.bottom + sy });
+            }
         }
 
         measurePageTop();
         const sky = pageTop;
         platforms = nextPlatforms.filter(pl => pl.y >= sky - 1);
         textBoxes = nextText;
+        wallBands = new Map();
+        for (const w of nextWalls) {
+            for (let k = Math.floor(w.y1 / BAND); k <= Math.floor(w.y2 / BAND); k++) {
+                if (!wallBands.has(k)) wallBands.set(k, []);
+                wallBands.get(k).push(w);
+            }
+        }
         platformBands = new Map();
         for (const pl of platforms) {
             const k = Math.floor(pl.y / BAND);
@@ -793,7 +808,7 @@
         for (let k = 2; k <= 6; k++) {
             waves.push({ k, a: (0.04 + Math.random() * 0.07) / (k * 0.45), p: Math.random() * Math.PI * 2 });
         }
-        const c = { x, y, R, waves, soot: R * 0.6 + 10, age: 0, burn: 300 + Math.random() * 300 };
+        const c = { x, y, R, waves, soot: R * 0.25 + 6, age: 0, burn: 300 + Math.random() * 300 };
         // The page this blast actually removes: inside the new blob, not sky, not already a hole.
         // Debris comes only from here, so hitting the same spot again tears nothing new.
         const before = craters.slice();
@@ -855,6 +870,8 @@
 
     const MAX_SHARDS = 350;
     const MAX_LETTERS = 1200;
+    const blocks = [];      // whole page elements (cards, images, buttons) knocked off the page
+    const MAX_BLOCKS = 60;
 
     // The colour actually showing at a screen point: the nearest opaque background behind it
     function colorAt(screenX, screenY) {
@@ -880,37 +897,43 @@
             const color = colorAt(x - window.scrollX, y - window.scrollY);
             if (!color) continue;
 
-            // Mostly plank-like quads, some triangles
-            const size = Math.min(8 + Math.random() * r * 0.4, maxSize);
-            const pts = [];
-            if (Math.random() < 0.7) {
-                const w = size * (0.8 + Math.random() * 1.4), h = size * (0.25 + Math.random() * 0.45);
-                for (const [qx, qy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-                    pts.push([qx * w / 2 * (0.8 + Math.random() * 0.4), qy * h / 2 * (0.8 + Math.random() * 0.4)]);
-                }
-            } else {
-                for (let k = 0; k < 3; k++) {
-                    const pa = (k / 3) * Math.PI * 2 + (Math.random() - 0.5) * 0.8;
-                    pts.push([Math.cos(pa) * size * 0.6, Math.sin(pa) * size * 0.6]);
-                }
-            }
-
             // Use the image actually visible at this spot (carousels stack hidden images)
             const under = pageElementAt(x - window.scrollX, y - window.scrollY);
-            let image = null;
-            if (under && under.tagName === 'IMG' && under.complete && under.naturalWidth) {
-                const ir = under.getBoundingClientRect();
-                image = { el: under, x1: ir.left + window.scrollX, y1: ir.top + window.scrollY, x2: ir.right + window.scrollX, y2: ir.bottom + window.scrollY };
-            }
-            shards.push({
-                x, y, ox: x, oy: y, pts, color, image,
-                vx: Math.cos(a) * (2 + Math.random() * 5),
-                vy: Math.sin(a) * (2 + Math.random() * 4) - 3 - Math.random() * 3,
-                rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.35,
-                lines: color === pageBg && Math.random() < 0.6 ? Math.floor(Math.random() * 4) : 0,
-                resting: false
-            });
+            const image = under && under.tagName === 'IMG' ? imageSource(under) : null;
+            makeShard(x, y, a, Math.min(8 + Math.random() * r * 0.4, maxSize), color, image, x, y);
         }
+    }
+
+    function imageSource(img) {
+        if (!img.complete || !img.naturalWidth) return null;
+        const ir = img.getBoundingClientRect();
+        return { el: img, x1: ir.left + window.scrollX, y1: ir.top + window.scrollY, x2: ir.right + window.scrollX, y2: ir.bottom + window.scrollY };
+    }
+
+    // One torn piece flying off at angle a. (ox, oy) is where it was on the page, which is the
+    // part of `image` it shows.
+    function makeShard(x, y, a, size, color, image, ox, oy) {
+        // Mostly plank-like quads, some triangles
+        const pts = [];
+        if (Math.random() < 0.7) {
+            const w = size * (0.8 + Math.random() * 1.4), h = size * (0.25 + Math.random() * 0.45);
+            for (const [qx, qy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+                pts.push([qx * w / 2 * (0.8 + Math.random() * 0.4), qy * h / 2 * (0.8 + Math.random() * 0.4)]);
+            }
+        } else {
+            for (let k = 0; k < 3; k++) {
+                const pa = (k / 3) * Math.PI * 2 + (Math.random() - 0.5) * 0.8;
+                pts.push([Math.cos(pa) * size * 0.6, Math.sin(pa) * size * 0.6]);
+            }
+        }
+        shards.push({
+            x, y, ox, oy, pts, color, image,
+            vx: Math.cos(a) * (2 + Math.random() * 5),
+            vy: Math.sin(a) * (2 + Math.random() * 4) - 3 - Math.random() * 3,
+            rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.35,
+            lines: color === pageBg && Math.random() < 0.6 ? Math.floor(Math.random() * 4) : 0,
+            resting: false
+        });
         if (shards.length > MAX_SHARDS) shards.splice(0, shards.length - MAX_SHARDS);
     }
 
@@ -935,7 +958,7 @@
 
     function rebuildRubble() {
         rubbleBands = new Map();
-        for (const list of [shards, letters]) {
+        for (const list of [shards, letters, blocks]) {
             for (const o of list) {
                 if (!o.resting) continue;
                 const b = shapeBounds(o);
@@ -963,10 +986,12 @@
         o.x += o.vx;
         o.y += o.vy;
         o.rot += o.vr;
+        if (o.heavy) hitWalls(o);
         if (o.vy < 0) return;
         const b = shapeBounds(o);
         const bottom = o.y + b.maxY;
-        let land = findLanding(o.x + b.minX * 0.5, o.x + b.maxX * 0.5, prevBottom, bottom, o);
+        const span = o.heavy ? 0.9 : 0.5; // a card rests on anything under most of its width
+        let land = findLanding(o.x + b.minX * span, o.x + b.maxX * span, prevBottom, bottom, o);
         const floor = docBottom();
         if (land === null && bottom >= floor) land = floor; // bottom of the page
         if (land === null) return;
@@ -979,7 +1004,57 @@
             o.vr *= 0.5;
         } else {
             o.vy = 0; o.vx = 0; o.vr = 0;
+            if (o.heavy) {
+                const flat = restingAngle(o);
+                if (Math.abs(o.rot - flat) > 0.03) {
+                    o.rot += (flat - o.rot) * 0.2; // still tipping over
+                    return;
+                }
+                o.rot = flat;
+            }
             settle(o, true);
+        }
+    }
+
+    // A broken-off card doesn't balance on a corner: it tips onto its nearest side. A long card
+    // that would end up standing on a short end keeps going and falls flat, toward its lean.
+    function restingAngle(o) {
+        const q = Math.PI / 2;
+        const k = Math.round(o.rot / q);
+        let flat = k * q;
+        const upright = Math.abs(k) % 2 === 1;
+        const tall = upright ? o.w / o.h : o.h / o.w; // height over width as it would stand
+        if (tall > 1.4) flat += o.rot >= flat ? q : -q;
+        return flat;
+    }
+
+    // Broken-off cards have mass: the sides of solid boxes on the page stop them (they still
+    // land on tops like everything else). Only boxes they run into count, not ones they start in.
+    function hitWalls(o) {
+        if (!o.vx) return;
+        const b = shapeBounds(o);
+        const top = o.y + b.minY + 4, bot = o.y + b.maxY - 4;
+        if (bot <= top) return;
+        const l0 = o.x - o.vx + b.minX, r0 = o.x - o.vx + b.maxX;
+        const l1 = o.x + b.minX, r1 = o.x + b.maxX;
+        const checked = new Set();
+        for (let k = Math.floor(top / BAND); k <= Math.floor(bot / BAND); k++) {
+            for (const w of wallBands.get(k) || []) {
+                if (checked.has(w)) continue;
+                checked.add(w);
+                if (w.y1 >= bot || w.y2 <= top) continue;
+                if (inHole((w.x1 + w.x2) / 2, Math.max(w.y1, top))) continue; // blasted away there
+                let push = 0;
+                if (o.vx > 0 && r0 <= w.x1 && r1 > w.x1) push = w.x1 - r1;
+                else if (o.vx < 0 && l0 >= w.x2 && l1 < w.x2) push = w.x2 - l1;
+                if (!push) continue;
+                o.x += push;
+                o.vx = -o.vx * 0.3;
+                o.vr *= 0.5;
+                const v = nearVolume(o.x, o.y) * 0.6;
+                if (v > 0.05) generated.thud(v);
+                return;
+            }
         }
     }
 
@@ -988,7 +1063,7 @@
     function checkRubbleSupport() {
         if (rubbleDirty) rebuildRubble();
         const floor = docBottom();
-        for (const list of [shards, letters]) {
+        for (const list of [shards, letters, blocks]) {
             for (const o of list) {
                 if (!o.resting) continue;
                 const b = shapeBounds(o);
@@ -1003,14 +1078,14 @@
 
     // Wake resting debris near a point (its ledge may be gone) and optionally blast it outward
     function disturbDebris(cx, cy, reach, force) {
-        for (const list of [shards, letters]) {
+        for (const list of [shards, letters, blocks]) {
             for (const o of list) {
                 const dx = o.x - cx, dy = o.y - cy;
                 const d = Math.hypot(dx, dy);
                 if (d > reach) continue;
                 settle(o, false);
                 if (force) {
-                    const k = force * (1 - d / reach);
+                    const k = force * (1 - d / reach) / (o.heavy || 1);
                     o.vx += (dx / (d || 1)) * k;
                     o.vy += (dy / (d || 1)) * k - k * 0.6;
                     o.vr += (Math.random() - 0.5) * 0.4;
@@ -1092,6 +1167,253 @@
             resting: false
         });
         if (letters.length > MAX_LETTERS) letters.splice(0, letters.length - MAX_LETTERS);
+    }
+
+    // ---- Loose blocks: a card, image or button that a blast tears partly away breaks off whole.
+    // It is lifted out of the site's layout (where sections that hide their overflow would clip it
+    // and later sections would cover it) into a debris layer of its own: a copy with every style
+    // frozen inline, carrying the bite the blast took out of it as a mask. The original is hidden
+    // in place so nothing reflows. The copy falls and becomes rubble.
+    const debrisLayer = document.createElement('div');
+    Object.assign(debrisLayer.style, {
+        position: 'absolute', left: '0', top: '0', width: '0', height: '0', overflow: 'visible',
+        zIndex: '2147483645', pointerEvents: 'none'
+    });
+    html.appendChild(debrisLayer);
+
+    // Root box properties the copy gets from its spot in the debris layer instead
+    const ROOT_OWN = new Set(['position', 'top', 'left', 'right', 'bottom', 'inset', 'margin', 'margin-top',
+        'margin-right', 'margin-bottom', 'margin-left', 'transform', 'translate', 'rotate', 'scale', 'float',
+        'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'visibility', 'z-index']);
+
+    function freezeStyles(src, dst, root) {
+        const cs = getComputedStyle(src);
+        for (let i = 0; i < cs.length; i++) {
+            const name = cs[i];
+            if (name === 'pointer-events' || (root && ROOT_OWN.has(name))) continue; // debris is never clickable
+            dst.style.setProperty(name, cs.getPropertyValue(name));
+        }
+        const kids = src.children, copies = dst.children;
+        for (let i = 0; i < kids.length && i < copies.length; i++) freezeStyles(kids[i], copies[i], false);
+    }
+    function isOpaque(c) {
+        return c && c !== 'transparent' && !/rgba\(.*,\s*0\)$/.test(c);
+    }
+
+    // A self-contained visual box of a sensible size: media, a control, or a box with its own
+    // background, border or shadow. Plain text and big layout sections don't qualify.
+    function isCard(el, r) {
+        if (el === body || el === html || el === uiHost || el === canvas || el === bgCanvas) return false;
+        const vw = window.innerWidth, vh = window.innerHeight;
+        if (r.width < 24 || r.height < 16 || r.width > vw * 0.55 || r.height > vh * 0.6) return false;
+        if (r.width * r.height > vw * vh * 0.18) return false;
+        const tag = el.tagName;
+        if (tag === 'IMG' || tag === 'svg' || tag === 'VIDEO' || tag === 'CANVAS' || tag === 'PICTURE' || tag === 'BUTTON') return true;
+        const cs = getComputedStyle(el);
+        if (cs.display === 'inline') return false;
+        const bg = cs.backgroundColor;
+        return (isOpaque(bg) && bg !== pageBg) || cs.backgroundImage !== 'none' || cs.boxShadow !== 'none' ||
+            (parseFloat(cs.borderTopWidth) > 0 && cs.borderTopStyle !== 'none' && parseFloat(cs.borderLeftWidth) > 0);
+    }
+
+    // Share of an element's box that is now hole
+    function damageShare(r) {
+        let hit = 0;
+        for (let i = 0; i < 8; i++) {
+            for (let j = 0; j < 8; j++) {
+                const px = r.left + window.scrollX + (i + 0.5) / 8 * r.width;
+                const py = r.top + window.scrollY + (j + 0.5) / 8 * r.height;
+                if (inHole(px, py)) hit++;
+            }
+        }
+        return hit / 64;
+    }
+
+    // The outermost card under the newly destroyed page; a card that lost part (not all) of
+    // itself breaks off
+    function breakOffCards(cx, cy, fresh) {
+        if (!fresh.length) return false;
+        const seen = new Set();
+        const picked = [];
+        const stride = Math.max(1, Math.floor(fresh.length / 40));
+        for (let k = 0; k < fresh.length && picked.length < 4; k += stride) {
+            const sx = fresh[k][0] - window.scrollX, sy = fresh[k][1] - window.scrollY;
+            if (sx < 0 || sy < 0 || sx >= window.innerWidth || sy >= window.innerHeight) continue;
+            // Everything stacked at this point was hit, not just the topmost element (an
+            // image can sit under a transparent overlay of links)
+            for (const top of document.elementsFromPoint(sx, sy)) {
+                if (top === canvas || top === bgCanvas || top === html || top === body) continue;
+                if (seen.has(top) || top.closest(`[${LOOSE}]`)) continue;
+                // Cards from the inside out; the outermost one that really took damage goes
+                const chain = [];
+                for (let el = top; el && el !== body; el = el.parentElement) {
+                    if (seen.has(el)) break;
+                    seen.add(el);
+                    const r = el.getBoundingClientRect();
+                    if (isCard(el, r)) chain.push({ el, r });
+                }
+                for (let i = chain.length - 1; i >= 0; i--) {
+                    const { el, r } = chain[i];
+                    if (picked.some(p => p.el.contains(el) || el.contains(p.el)) || el.querySelector(`[${LOOSE}]`)) break;
+                    const share = damageShare(r);
+                    if (share < 0.05) continue; // barely scratched: maybe a smaller card inside took the hit
+                    if (share > 0.9) el.style.visibility = 'hidden'; // blown away entirely
+                    else picked.push({ el, r });
+                    break;
+                }
+            }
+        }
+        for (const { el, r } of picked) detachCard(el, r, cx, cy);
+        return picked.length > 0;
+    }
+
+    // Cut the holes the card already has out of it, so the bite travels with it. Returns the
+    // mask canvas (opaque = card still there), kept so later blasts can bite into it.
+    function maskOutHoles(el, r) {
+        const x0 = (r.left + window.scrollX) / DMG, y0 = (r.top + window.scrollY) / DMG;
+        const mw = Math.max(1, Math.ceil(r.width / DMG)), mh = Math.max(1, Math.ceil(r.height / DMG));
+        const m = document.createElement('canvas');
+        m.width = mw; m.height = mh;
+        const g = m.getContext('2d');
+        g.fillStyle = '#000';
+        g.fillRect(0, 0, mw, mh);
+        g.globalCompositeOperation = 'destination-out';
+        g.drawImage(holeMap, x0, y0, r.width / DMG, r.height / DMG, 0, 0, mw, mh);
+        applyMask(el, m);
+        return m;
+    }
+
+    function applyMask(el, m) {
+        const url = `url(${m.toDataURL()})`;
+        for (const pre of ['', '-webkit-']) {
+            el.style.setProperty(pre + 'mask-image', url, 'important');
+            el.style.setProperty(pre + 'mask-size', '100% 100%', 'important');
+            el.style.setProperty(pre + 'mask-repeat', 'no-repeat', 'important');
+        }
+    }
+
+    // The colour a card's torn pieces get: its own background, else its image's average colour
+    function cardColor(el) {
+        const bg = getComputedStyle(el).backgroundColor;
+        if (isOpaque(bg)) return bg;
+        const img = el.tagName === 'IMG' ? el : el.querySelector('img');
+        if (img && img.complete && img.naturalWidth) {
+            try {
+                const t = document.createElement('canvas');
+                t.width = t.height = 1;
+                const tg = t.getContext('2d');
+                tg.drawImage(img, 0, 0, 1, 1);
+                const [r, g, b, a] = tg.getImageData(0, 0, 1, 1).data;
+                if (a > 40) return `rgb(${r}, ${g}, ${b})`;
+            } catch (e) { /* another site's image: can't be read */ }
+        }
+        return '#8a8f99';
+    }
+
+    // A blast that reaches a broken-off card bites into it like into the page: the bitten part
+    // tears off as shards, and a card with almost nothing left shatters.
+    function damageBlocks(c) {
+        for (let i = blocks.length - 1; i >= 0; i--) {
+            const o = blocks[i];
+            if (Math.hypot(o.x - c.x, o.y - c.y) > c.R * 1.5 + Math.hypot(o.w, o.h) / 2) continue;
+            const m = o.mask, mw = m.width, mh = m.height;
+            const g = m.getContext('2d');
+            const img = g.getImageData(0, 0, mw, mh);
+            const cos = Math.cos(o.rot), sin = Math.sin(o.rot);
+            const bitten = [];
+            let left = 0;
+            for (let j = 0; j < mh; j++) {
+                for (let k = 0; k < mw; k++) {
+                    const p = (j * mw + k) * 4 + 3;
+                    if (!img.data[p]) continue;
+                    const lx = (k + 0.5) / mw * o.w - o.w / 2, ly = (j + 0.5) / mh * o.h - o.h / 2;
+                    const wx = o.x + lx * cos - ly * sin, wy = o.y + lx * sin + ly * cos;
+                    if (craterField(wx, wy, [c]).f < 0) {
+                        img.data[p] = 0;
+                        bitten.push([wx, wy, o.ox + lx, o.oy + ly]);
+                    } else left++;
+                }
+            }
+            if (!bitten.length) continue;
+            const area = bitten.length * (o.w / mw) * (o.h / mh);
+            const shatter = left < (left + bitten.length) * 0.15;
+            // Shattering tears up what's left too
+            let pieces = bitten;
+            if (shatter) {
+                pieces = [];
+                for (let j = 0; j < mh; j++) for (let k = 0; k < mw; k++) {
+                    const lx = (k + 0.5) / mw * o.w - o.w / 2, ly = (j + 0.5) / mh * o.h - o.h / 2;
+                    pieces.push([o.x + lx * cos - ly * sin, o.y + lx * sin + ly * cos, o.ox + lx, o.oy + ly]);
+                }
+            }
+            const total = shatter ? o.w * o.h : area;
+            const count = Math.min(14, Math.ceil(total / 450));
+            const size = Math.min(Math.sqrt(total / count) * 1.3, 8 + c.R * 0.4);
+            for (let n = 0; n < count; n++) {
+                const [wx, wy, ox, oy] = pieces[Math.floor(Math.random() * pieces.length)];
+                const a = Math.atan2(wy - c.y, wx - c.x) + (Math.random() - 0.5) * 0.6;
+                makeShard(wx, wy, a, size * (0.6 + Math.random() * 0.4), o.color, o.image, ox, oy);
+            }
+            if (shatter) {
+                o.el.remove();
+                blocks.splice(i, 1);
+                rubbleDirty = true;
+                continue;
+            }
+            g.putImageData(img, 0, 0);
+            applyMask(o.el, m);
+            settle(o, false);
+        }
+    }
+
+    function detachCard(el, r, cx, cy) {
+        const copy = el.cloneNode(true);
+        freezeStyles(el, copy, true);
+        copy.removeAttribute('id');
+        const base = getComputedStyle(el).transform;
+        const left = r.left + window.scrollX, top = r.top + window.scrollY;
+        const set = (k, v) => copy.style.setProperty(k, v, 'important');
+        set('position', 'absolute');
+        set('left', left + 'px');
+        set('top', top + 'px');
+        set('margin', '0');
+        set('box-sizing', 'border-box');
+        set('width', r.width + 'px');
+        set('height', r.height + 'px');
+        set('visibility', 'visible');
+        set('pointer-events', 'none');
+        if (getComputedStyle(el).display === 'inline') set('display', 'inline-block');
+        set('transform-origin', '50% 50%');
+        set('will-change', 'transform');
+        const mask = maskOutHoles(copy, r);
+        debrisLayer.appendChild(copy);
+        el.setAttribute(LOOSE, '');
+        el.style.setProperty('visibility', 'hidden', 'important');
+
+        const x = left + r.width / 2, y = top + r.height / 2;
+        const a = Math.atan2(y - cy, x - cx);
+        const heavy = 1 + (r.width * r.height) / 6000;
+        const hw = r.width / 2, hh = r.height / 2;
+        blocks.push({
+            el: copy, base: base === 'none' ? '' : ' ' + base,
+            x, y, ox: x, oy: y, heavy, w: r.width, h: r.height, mask,
+            color: cardColor(el), image: el.tagName === 'IMG' ? imageSource(el) : null,
+            pts: [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]],
+            vx: Math.cos(a) * (2 + Math.random() * 3) / Math.sqrt(heavy),
+            vy: Math.sin(a) * 2 - 3 - Math.random() * 2,
+            rot: 0, vr: (Math.random() - 0.5) * 0.12 / Math.sqrt(heavy),
+            resting: false, shown: ''
+        });
+        if (blocks.length > MAX_BLOCKS) {
+            for (const old of blocks.splice(0, blocks.length - MAX_BLOCKS)) old.el.remove();
+        }
+    }
+
+    function placeBlock(o) {
+        const t = `translate(${(o.x - o.ox).toFixed(1)}px, ${(o.y - o.oy).toFixed(1)}px) rotate(${o.rot.toFixed(3)}rad)${o.base}`;
+        if (t === o.shown) return;
+        o.el.style.setProperty('transform', t, 'important');
+        o.shown = t;
     }
 
     // Flames sit on the crater's outer edge; points swallowed by a neighbouring blob are skipped
@@ -1898,6 +2220,8 @@
         const blast = addCrater(x, y, holeR);
         spawnShards(x, y, holeR, blast.fresh);
         loosenLetters(blast);
+        damageBlocks(blast.c);
+        if (breakOffCards(x, y, blast.fresh)) scanPage(); // their ledges go with them
         for (let i = 0; i < 8 + holeR / 10; i++) {
             const a = Math.random() * Math.PI * 2;
             const d = holeR * (0.8 + Math.random() * 0.7);
@@ -2061,6 +2385,14 @@
         for (let i = shards.length - 1; i >= 0; i--) {
             stepDebris(shards[i], 0.3);
             if (shards[i].y > lost) shards.splice(i, 1);
+        }
+        for (let i = blocks.length - 1; i >= 0; i--) {
+            const o = blocks[i];
+            stepDebris(o, 0.3);
+            if (o.y > lost) {
+                o.el.remove();
+                blocks.splice(i, 1);
+            } else placeBlock(o);
         }
 
         // Craters near the screen keep burning, then smoulder
