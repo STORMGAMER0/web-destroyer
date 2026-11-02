@@ -51,6 +51,22 @@
     });
     html.appendChild(bgCanvas);
 
+    // The page's colour under the whole page, from its top to the bottom of the document. The
+    // site's own background used to do this; with the backdrop in its place, a page shorter
+    // than the screen, or a body boxed in smaller than its content, would show the backdrop
+    // below and beside it. It sits over the backdrop and under everything the site draws.
+    const pageFill = document.createElement('div');
+    Object.assign(pageFill.style, {
+        position: 'absolute', left: '0', zIndex: '-2147483646', pointerEvents: 'none', background: pageBg
+    });
+    html.appendChild(pageFill);
+    function sizePageFill() {
+        const bottom = Math.max(html.scrollHeight, body.scrollHeight);
+        pageFill.style.top = pageTop + 'px';
+        pageFill.style.width = Math.max(html.scrollWidth, window.innerWidth) + 'px';
+        pageFill.style.height = Math.max(0, bottom - pageTop) + 'px';
+    }
+
     // Game canvas lives on <html>, outside <body>, so the hole mask never cuts it
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -675,6 +691,7 @@
         }
 
         measurePageTop();
+        sizePageFill();
         const sky = pageTop;
         platforms = nextPlatforms.filter(pl => pl.y >= sky - 1);
         textBoxes = nextText;
