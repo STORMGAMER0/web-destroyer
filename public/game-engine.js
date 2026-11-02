@@ -29,6 +29,11 @@
     body.style.setProperty('scroll-behavior', 'auto', 'important');
     // Page y where the website starts. Everything above is backdrop: never solid, never damaged.
     const skyHeight = () => parseFloat(getComputedStyle(html).paddingTop) || 0;
+    // A top margin on <body> (or one its first child pushes through it) also shows the backdrop,
+    // so the page really starts where the body's box does. Refreshed on every page scan.
+    let pageTop = 0;
+    const measurePageTop = () => { pageTop = Math.max(skyHeight(), body.getBoundingClientRect().top + window.scrollY); };
+    measurePageTop();
     body.style.setProperty('background-color', pageBg, 'important');
     html.style.cursor = 'none';
     body.style.cursor = 'none';
@@ -654,7 +659,8 @@
             nextPlatforms.push({ x1: r.left + sx, x2: r.right + sx, y: r.top + sy });
         }
 
-        const sky = skyHeight();
+        measurePageTop();
+        const sky = pageTop;
         platforms = nextPlatforms.filter(pl => pl.y >= sky - 1);
         textBoxes = nextText;
         platformBands = new Map();
@@ -715,7 +721,7 @@
     }
 
     function inHole(x, y) {
-        return y >= skyHeight() && craterField(x, y).f < 0;
+        return y >= pageTop && craterField(x, y).f < 0;
     }
 
     function ensureMapSize() {
@@ -740,7 +746,7 @@
         if (w <= 0 || h <= 0) return;
         const near = craters.filter(c => c.x + c.R * 1.5 + c.soot > x0 && c.x - c.R * 1.5 - c.soot < x1 &&
                                          c.y + c.R * 1.5 + c.soot > y0 && c.y - c.R * 1.5 - c.soot < y1);
-        const sky = skyHeight();
+        const sky = pageTop;
         const holes = new ImageData(w, h);
         const decal = new ImageData(w, h);
         const put = (img, p, r, g, b, a) => { img.data[p] = r; img.data[p + 1] = g; img.data[p + 2] = b; img.data[p + 3] = a; };
@@ -1066,7 +1072,7 @@
         const d = radiusAt(c, a) * (0.97 + Math.random() * 0.1);
         const x = c.x + Math.cos(a) * d;
         const y = c.y + Math.sin(a) * d;
-        if (y < skyHeight() || craterField(x, y).f < -DMG * 2) return;
+        if (y < pageTop || craterField(x, y).f < -DMG * 2) return;
         flames.push({
             x, y,
             vx: (Math.random() - 0.5) * 0.4,
