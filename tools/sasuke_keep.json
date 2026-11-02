@@ -10,7 +10,11 @@
   "sa_body",
   "ct_body",
   "cs_body",
-  "st_body"
+  "st_body",
+  "cd_charge",
+  "cd_dash",
+  "cd_strike",
+  "cd_end"
  ],
  "anims": {
   "idle": {
@@ -106,6 +110,27 @@
   "st_wave": {
    "anim": 1450,
    "bake": 1.5
+  },
+  "cd_charge": 1000,
+  "cd_dash": {
+   "anim": 1001,
+   "loop": true
+  },
+  "cd_strike": {
+   "anim": 1002,
+   "first": true
+  },
+  "cd_end": 1003,
+  "cd_hand": {
+   "anim": 3181,
+   "bake": 0.4,
+   "decimate": 2,
+   "loop": true
+  },
+  "cd_burst": {
+   "anim": 1065,
+   "bake": 0.6,
+   "loop": true
   }
  }
 }

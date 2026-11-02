@@ -756,6 +756,10 @@
             for (const w of c.waves) r += w.a * Math.sin(w.k * angle + w.p);
             c.rim[i] = c.R * r;
         }
+        rimBounds(c);
+    }
+
+    function rimBounds(c) {
         // Squared distances inside which a point is deep in the hole (below even the lowest rim,
         // the torn lip and the edge jitter) and beyond which it's past the soot
         let lo = Infinity, hi = 0;
@@ -764,13 +768,34 @@
         c.outer2 = (hi + c.soot + DMG * 3) ** 2;
     }
 
+    // Signed distance from one crater's edge to a point (dx, dy) from its centre: < 0 inside.
+    // A blob's edge is its lumpy rim; a groove's runs straight along both sides of its line.
+    function edgeDistance(c, dx, dy) {
+        if (!c.seg) return Math.sqrt(dx * dx + dy * dy) - radiusAt(c, Math.atan2(dy, dx));
+        const g = c.seg;
+        const px = dx + c.x - g.x1, py = dy + c.y - g.y1;
+        const t = Math.max(0, Math.min(1, (px * g.dx + py * g.dy) / g.len2));
+        return Math.hypot(px - t * g.dx, py - t * g.dy) - c.w;
+    }
+
+    // A random point on a crater's edge, `out` times as far out as the edge
+    function rimPoint(c, out = 1) {
+        if (c.seg) {
+            const g = c.seg, t = Math.random(), n = Math.sqrt(g.len2);
+            const d = c.w * out * (Math.random() < 0.5 ? 1 : -1);
+            return [g.x1 + g.dx * t - g.dy / n * d, g.y1 + g.dy * t + g.dx / n * d];
+        }
+        const a = Math.random() * Math.PI * 2, d = radiusAt(c, a) * out;
+        return [c.x + Math.cos(a) * d, c.y + Math.sin(a) * d];
+    }
+
     // Signed distance-ish to the crater union: < 0 inside a hole. Also returns the nearest blob.
     function craterField(x, y, list = craters) {
         let best = Infinity, owner = null;
         for (const c of list) {
             const dx = x - c.x, dy = y - c.y;
             if (Math.abs(dx) > c.R * 1.5 + c.soot || Math.abs(dy) > c.R * 1.5 + c.soot) continue;
-            const f = Math.sqrt(dx * dx + dy * dy) - radiusAt(c, Math.atan2(dy, dx));
+            const f = edgeDistance(c, dx, dy);
             if (f < best) { best = f; owner = c; }
         }
         return { f: best, owner };
@@ -821,7 +846,7 @@
                     const dx = px - k.x, dy = qy - k.y, d2 = dx * dx + dy * dy;
                     if (d2 > k.outer2) continue;
                     if (d2 < k.inner2) { raw = -Infinity; c = k; break; } // deep in the hole: no rim here
-                    const f = Math.sqrt(d2) - radiusAt(k, Math.atan2(dy, dx));
+                    const f = edgeDistance(k, dx, dy);
                     if (f < raw) { raw = f; c = k; }
                 }
                 if (!c) continue;
@@ -832,7 +857,7 @@
                     if (inSky) continue;
                     // Torn paper lip hanging into the bottom of the hole
                     const lip = c.R * (0.07 + hash(gx, 7) * 0.09);
-                    if (py - c.y > c.R * 0.25 && f > -lip) {
+                    if (!c.clean && py - c.y > c.R * 0.25 && f > -lip) {
                         const edge = f > -lip * 0.35;
                         put(decal, p, ...(edge ? pageRgb.map(v => v - 30) : pageRgb), 255);
                     } else if (f > -DMG * 1.2) {
@@ -859,22 +884,78 @@
         }
         const c = { x, y, R, waves, soot: R * 0.25 + 6, age: 0, burn: 300 + Math.random() * 300 };
         buildRim(c);
-        // The page this blast actually removes: inside the new blob, not sky, not already a hole.
-        // Debris comes only from here, so hitting the same spot again tears nothing new.
+        const reach = R * 1.5;
+        return openCrater(c, x - reach, y - reach, x + reach, y + reach);
+    }
+
+    // The spikes of a starburst fanned out toward dir (radians): a handful of jagged points of
+    // different lengths, longest in the middle. Lengths are fractions of the burst's radius, so
+    // the same spikes can burst out again bigger.
+    function starSpikes(dir) {
+        const spikes = [];
+        const n = 6 + Math.floor(Math.random() * 3);
+        for (let k = 0; k < n; k++) {
+            const t = (k + 0.5) / n * 2 - 1; // -1..1 across the fan
+            spikes.push({
+                a: dir + t * 1.05 + (Math.random() - 0.5) * 0.2,
+                len: (0.6 + Math.random() * 0.4) * (1 - 0.3 * Math.abs(t)),
+                w: 0.16 + Math.random() * 0.1 // half-width at the base, in radians
+            });
+        }
+        return spikes;
+    }
+
+    // A starburst: jagged spikes splayed out ahead of `dir`, the way lightning bursts out of a
+    // strike, out to R. Behind, it narrows to `back` either side, the width of the groove that
+    // led in.
+    function addStarburst(x, y, R, dir, back, spikes) {
+        const c = { x, y, R, soot: 7, age: 0, burn: 200 + Math.random() * 200, clean: true };
+        c.rim = new Float32Array(RIM_STEPS);
+        for (let i = 0; i < RIM_STEPS; i++) {
+            const a = i / RIM_STEPS * Math.PI * 2 - Math.PI;
+            const off = Math.abs(Math.atan2(Math.sin(a - dir), Math.cos(a - dir)));
+            // The core: a small knot ahead of the groove's end, as narrow as the groove behind it
+            let r = back + (R * 0.28 - back) * Math.max(0, Math.cos(off * 0.8));
+            for (const sp of spikes) {
+                const d = Math.abs(Math.atan2(Math.sin(a - sp.a), Math.cos(a - sp.a)));
+                if (d < sp.w) r = Math.max(r, R * 0.25 + (sp.len * R - R * 0.25) * (1 - d / sp.w));
+            }
+            c.rim[i] = r;
+        }
+        rimBounds(c);
+        return openCrater(c, x - R, y - R, x + R, y + R);
+    }
+
+    // A straight groove from (x1, y1) to (x2, y2), w either side of the line: the cut a beam or a
+    // dash leaves. Its sides run straight, ragged only at the pixel level like every hole.
+    function addGroove(x1, y1, x2, y2, w) {
+        const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy);
+        const c = {
+            x: (x1 + x2) / 2, y: (y1 + y2) / 2, R: len / 2 + w, w, len,
+            seg: { x1, y1, dx, dy, len2: len * len || 1 },
+            soot: w * 0.25 + 4, age: 0, burn: 120 + Math.random() * 120, inner2: 0, clean: true
+        };
+        c.outer2 = (c.R + c.soot + DMG * 3) ** 2;
+        return openCrater(c, Math.min(x1, x2) - w, Math.min(y1, y2) - w, Math.max(x1, x2) + w, Math.max(y1, y2) + w);
+    }
+
+    // Add a crater over the page box x0..x1, y0..y1 that holds it. The page this removes: inside
+    // the new crater, not sky, not already a hole. Debris comes only from here, so hitting the
+    // same spot again tears nothing new.
+    function openCrater(c, x0, y0, x1, y1) {
         const before = craters.slice();
         const fresh = [];
-        const reach0 = R * 1.5;
-        for (let py = y - reach0; py <= y + reach0; py += FRESH_STEP) {
+        for (let py = y0; py <= y1; py += FRESH_STEP) {
             if (py < pageTop) continue;
-            for (let px = x - reach0; px <= x + reach0; px += FRESH_STEP) {
+            for (let px = x0; px <= x1; px += FRESH_STEP) {
                 if (craterField(px, py, [c]).f < 0 && craterField(px, py, before).f >= 0) fresh.push([px, py]);
             }
         }
         craters.push(c);
-        disturbDebris(x, y, R * 1.6 + 40, 0);
+        disturbDebris(c.x, c.y, c.R * 1.6 + 40, 0);
         ensureMapSize();
-        const reach = R * 1.5 + c.soot + DMG * 2;
-        paintDamage(x - reach, y - reach, x + reach, y + reach);
+        const pad = c.soot + DMG * 2;
+        paintDamage(x0 - pad, y0 - pad, x1 + pad, y1 + pad);
         return { c, before, fresh };
     }
 
@@ -1296,7 +1377,7 @@
     // destroyed (inside the new hole, not in an older one) all fly out; a few right at the new
     // rim shake loose. Letters already under a hole were destroyed before and stay gone.
     function loosenLetters({ c, before }) {
-        const cx = c.x, cy = c.y, rim = c.R * 0.3, rOut = c.R * 1.5 + rim;
+        const cx = c.x, cy = c.y, rim = (c.w || c.R) * 0.3, rOut = c.R * 1.5 + rim;
         const range = document.createRange();
         const picks = [];
         for (const t of textBoxes) {
@@ -1553,7 +1634,7 @@
             }
             const total = shatter ? o.w * o.h : area;
             const count = Math.min(14, Math.ceil(total / 450));
-            const size = Math.min(Math.sqrt(total / count) * 1.3, 8 + c.R * 0.4);
+            const size = Math.min(Math.sqrt(total / count) * 1.3, 8 + (c.w || c.R) * 0.4);
             for (let n = 0; n < count; n++) {
                 const [wx, wy, ox, oy] = pieces[Math.floor(Math.random() * pieces.length)];
                 const a = Math.atan2(wy - c.y, wx - c.x) + (Math.random() - 0.5) * 0.6;
@@ -1639,10 +1720,7 @@
 
     // Flames sit on the crater's outer edge; points swallowed by a neighbouring blob are skipped
     function spawnFlame(c) {
-        const a = Math.random() * Math.PI * 2;
-        const d = radiusAt(c, a) * (0.97 + Math.random() * 0.1);
-        const x = c.x + Math.cos(a) * d;
-        const y = c.y + Math.sin(a) * d;
+        const [x, y] = rimPoint(c, 0.97 + Math.random() * 0.1);
         if (y < pageTop || craterField(x, y).f < -DMG * 2) return;
         flames.push({
             x, y,
@@ -1713,7 +1791,8 @@
             { name: 'Tailed Beast Bomb', cast: castTailedBeastBomb },
             { name: 'Kurama Bijuudama', cast: castKuramaBijuudama },
             { name: 'Twin Rasenshuriken', cast: castTwinRasenshuriken },
-            { name: 'Lava Rasenshuriken', cast: castLavaRasenshuriken }
+            { name: 'Lava Rasenshuriken', cast: castLavaRasenshuriken },
+            { name: 'Sage Rasengan', cast: castSageRasengan }
         ],
         sasuke: [
             { name: 'Great Fireball', cast: castGreatFireball },
@@ -1721,7 +1800,8 @@
             { name: 'Chibaku Tensei', cast: castChibakuTensei },
             { name: "Indra's Arrow", cast: castIndrasArrow },
             { name: 'Chidori Senbon', cast: castChidoriSenbon },
-            { name: 'Shinra Tensei', cast: castShinraTensei }
+            { name: 'Shinra Tensei', cast: castShinraTensei },
+            { name: 'Chidori', cast: castChidori }
         ]
     };
     ROSTER.goku = [
@@ -1826,6 +1906,9 @@
             stretchX: opts.stretchX || 1,     // beams: length multiplier along the sprite's x axis
             stretchTime: opts.stretchTime || 0, // ticks for the stretch to grow from 0
             follow: !!opts.follow,       // stay on the character's feet (auras)
+            offsetX: opts.offsetX || 0,  // with follow: offset from his feet, mirrored with his facing
+            offsetY: opts.offsetY || 0,
+            spin: opts.spin || 0,        // radians turned per tick
             age: 0
         };
         effects.push(fx);
@@ -1859,6 +1942,30 @@
             layers: layers.map(l => ({ ...l, anim: createAnim(l.name) })),
             onHit,
             age: 0
+        });
+    }
+
+    // A dashing strike flies the character in a straight line at the target (his chest heads
+    // for it), at most `reach` far: no gravity, and page ledges don't stop him. onStep(i) runs
+    // after each of the steps; onArrive when he gets there.
+    const DASH_STEP = 22;
+    function dashAt(tx, ty, reach, onStep, onArrive) {
+        const sx = player.x, sy = player.y - 40;
+        const d = Math.hypot(tx - sx, ty - sy) || 1;
+        const dist = Math.min(reach, d);
+        const steps = Math.max(3, Math.ceil(dist / DASH_STEP));
+        const stepX = (tx - sx) / d * dist / steps, stepY = (ty - sy) / d * dist / steps;
+        for (let i = 1; i <= steps; i++) {
+            after(i, () => {
+                player.vx = stepX || 0.001; // nonzero, so the camera follows him
+                player.y += stepY;
+                player.floatTicks = 2;
+                onStep(i);
+            });
+        }
+        after(steps + 1, () => {
+            player.vx = 0;
+            onArrive();
         });
     }
 
@@ -2050,6 +2157,74 @@
         after(70, endCast);
     }
 
+    // [6] Sage Rasengan: a Rasengan swirls up in Naruto's hand, he rushes at the cursor and
+    // slams it in. A huge Rasengan grinds into the page for a second, then blows out.
+    const RASENGAN_REACH = 600;
+    function castSageRasengan(tx, ty) {
+        faceTarget(tx);
+        startCast('rg_charge');
+        playSound('voice_rasengan');
+        playSound('charge_small', { volume: 0.5 });
+        spawnEffect('charge', player.x, player.y - 30, { scale: 0.7, life: 30 });
+
+        // 30 ticks in, as in the original: the Rasengan forms in his hand and the air stirs
+        let ball = null;
+        after(30, () => {
+            playSound('rg_form', { volume: 0.8 });
+            spawnEffect('rg_gust', player.x, player.y - 3, { facing: player.direction });
+            ball = spawnEffect('rg_form', player.x, player.y, { follow: true, offsetX: -25, offsetY: -36 });
+        });
+        after(41, () => {
+            ball.life = ball.age; // fully formed: it keeps spinning
+            ball = spawnEffect('rg_held', player.x, player.y, { follow: true, offsetX: -25, offsetY: -36 });
+        });
+
+        after(60, () => {
+            setPlayerAnim('rg_rush');
+            playSound('dash', { volume: 0.8 });
+            playSound('whoosh', { volume: 0.6 });
+            ball.offsetX = -10; // held out at his side for the rush
+            ball.offsetY = -40;
+            // The ball shoves loose rubble aside as he goes
+            dashAt(tx, ty, RASENGAN_REACH, () => disturbDebris(player.x, player.y - 40, 90, 6), () => rasenganStrike(ball));
+        });
+    }
+
+    function rasenganStrike(ball) {
+        player.floatTicks = 90; // he holds it in, even in mid-air
+        player.anim = createAnim('rg_strike');
+        ball.life = ball.age;
+        const dir = player.direction;
+        const hx = player.x + 85 * dir, hy = player.y - 39;
+        const v = Math.max(0.4, nearVolume(hx, hy));
+        after(4, () => playSound('rg_strike', { volume: v }));
+        // The big Rasengan: the original draws it at 0.09 of its sprite, baked at 0.27
+        const big = spawnEffect('rg_big', hx, hy, { centered: true, scale: 0.33, spin: -0.25, life: 65 });
+        spawnEffect('rg_wind', hx, player.y, { facing: dir });
+        createExplosion(hx, hy, { radius: 120, colors: ['#e1f5fe', '#4fc3f7', '#ffffff'], smoke: 0.3 });
+        // It grinds: the hole widens bit by bit while he keeps pushing
+        for (let t = 6; t < 65; t += 6) {
+            after(t, () => {
+                player.anim = createAnim('rg_strike');
+                playSound('rg_grind', { volume: 0.6 * v, minGap: 0 });
+                const a = Math.random() * Math.PI * 2, r = 20 + t * 0.6;
+                createExplosion(hx + Math.cos(a) * r, hy + Math.sin(a) * r, { radius: 70 + t, colors: ['#e1f5fe', '#81d4fa', '#ffffff'], smoke: 0.15 });
+                if (t % 18 === 0) spawnEffect('rg_wind', hx + (Math.random() - 0.5) * 60, player.y, { facing: dir });
+            });
+        }
+        // Then it blows out: the ball swells and bursts
+        after(65, () => {
+            big.life = big.age;
+            playSound('rg_burst', { volume: v });
+            playSound('bomb_boom', { volume: 0.7 * v });
+            spawnEffect('rg_big', hx, hy, { centered: true, scale: 0.33, growTo: 1, growTime: 20, spin: -0.25, life: 22, fade: 12 });
+            createExplosion(hx, hy, { radius: 280, colors: ['#e1f5fe', '#4fc3f7', '#ffffff'], smoke: 0.6 });
+            startShockwave(hx, hy, 380, 12);
+            setPlayerAnim('rg_end');
+        });
+        after(85, endCast);
+    }
+
     // ---------------- Sasuke ----------------
 
     // [1] Great Fireball: Sasuke breathes a fireball that bursts into a ring of flame.
@@ -2231,6 +2406,79 @@
         after(60, endCast);
     }
 
+    // [7] Chidori: lightning gathers in Sasuke's hand, then he dashes straight at the cursor,
+    // tearing a trench through the page, and drives it in. Like the original, he keeps thrusting
+    // and the lightning bursts again and again where it lands.
+    const CHIDORI_REACH = 650; // longest dash
+    const CHIDORI_GROOVE = 15; // half the width of the groove it cuts
+    function castChidori(tx, ty) {
+        faceTarget(tx);
+        startCast('cd_charge');
+        playSound('voice_chidori');
+        playSound('charge_small', { volume: 0.5 });
+        spawnEffect('charge', player.x, player.y - 35, { scale: 0.6, life: 30 });
+
+        // The original lights the Chidori 30 ticks in, in the hand he holds low behind him
+        let hand = null;
+        after(30, () => {
+            playSound('chidori_chirp', { volume: 0.7 });
+            playSound('chidori_buzz', { volume: 0.6 });
+            hand = spawnEffect('cd_hand', player.x, player.y, { follow: true, offsetX: 5, offsetY: -42 });
+        });
+
+        after(60, () => {
+            setPlayerAnim('cd_dash');
+            playSound('chidori_rush');
+            playSound('dash', { volume: 0.7 });
+            hand.offsetX = 10;  // his arm is out in front for the dash
+            hand.offsetY = -30;
+            // The lightning cuts a straight groove behind his hand, a piece every few steps
+            const handAt = () => [player.x + 25 * player.direction, player.y - 32];
+            let last = handAt();
+            const cut = () => {
+                const [hx, hy] = handAt();
+                if (Math.hypot(hx - last[0], hy - last[1]) < 4) return;
+                generated.crackle(nearVolume(hx, hy) * 3);
+                cutGroove(last[0], last[1], hx, hy, CHIDORI_GROOVE);
+                last = [hx, hy];
+            };
+            const heading = Math.atan2(ty - (player.y - 40), tx - player.x);
+            dashAt(tx, ty, CHIDORI_REACH, i => { if (i % 3 === 0) cut(); }, () => {
+                cut();
+                chidoriStrike(hand, last, heading);
+            });
+        });
+    }
+
+    // The lightning bursts out of the end of the groove (tip) in a starburst along the dash
+    function chidoriStrike(hand, tip, heading) {
+        player.floatTicks = 45; // he hangs where the strike lands, even in mid-air
+        setPlayerAnim('cd_strike');
+        hand.life = hand.age; // the Chidori goes into the strike
+        const dir = player.direction;
+        const hx = player.x + 65 * dir, hy = player.y - 42;
+        const star = { dir: heading, back: CHIDORI_GROOVE, spikes: starSpikes(heading) };
+        const v = Math.max(0.4, nearVolume(hx, hy));
+        playSound('voice_chidori_hit');
+        playSound('chidori_hit', { volume: v });
+        playSound('chibaku_boom', { volume: 0.5 * v });
+        spawnEffect('cd_burst', hx, hy, { scale: 0.9, life: 45, fade: 12 });
+        createExplosion(tip[0], tip[1], { radius: 250, colors: ['#e3f2fd', '#64b5f6', '#ffffff'], smoke: 0.3, star });
+        startShockwave(hx, hy, 320, 9);
+        // He keeps driving it in: thrust after thrust, each one a burst of lightning
+        for (let k = 1; k <= 5; k++) {
+            after(k * 6, () => {
+                player.anim = createAnim('cd_strike'); // from the top: setPlayerAnim won't restart it
+                playSound('chidori_hit', { volume: 0.6 * v, minGap: 0 });
+                generated.crackle(v * 3);
+                // Each thrust drives the same burst further out
+                createExplosion(tip[0], tip[1], { radius: 250 + k * 30, colors: ['#e3f2fd', '#90caf9', '#ffffff'], smoke: 0.15, star });
+            });
+        }
+        after(36, () => setPlayerAnim('cd_end'));
+        after(58, endCast);
+    }
+
     // ---------------- Goku ----------------
 
     // Hands for ki attacks: in front of the chest
@@ -2247,19 +2495,26 @@
         playSound('kame_fire', { volume: 0.8 });
         spawnEffect('beam', x, y, { rotation: angle, stretchX: dist / 860, stretchTime: 10, scale: size, life: 55, fade: 15 });
         spawnEffect('beam_head', x, y, { rotation: angle, scale: size * 1.2, life: 55, fade: 15 });
+        // The beam cuts a straight groove as it shoots out, a piece each tick behind its tip
+        const ux = Math.cos(angle), uy = Math.sin(angle);
+        let cutTo = Math.min(40, dist);
+        for (let k = 1; k <= 10; k++) {
+            after(k, () => {
+                const from = cutTo;
+                cutTo = dist * k / 10;
+                if (cutTo - from < 4) return;
+                cutGroove(x + ux * from, y + uy * from, x + ux * cutTo, y + uy * cutTo, KAME_GROOVE * size);
+            });
+        }
         after(10, () => {
             const v = Math.max(0.3, nearVolume(tx, ty));
             playSound('kame_boom', { volume: 0.9 * v });
             playSound('big_boom', { volume: 0.6 * v });
             spawnEffect('kame_boom', tx, ty, { centered: true, scale: 1.2 * size });
             createExplosion(tx, ty, { radius: 200 * size, colors: ['#e1f5fe', '#4fc3f7', '#ffffff'] });
-            // The beam's path is scorched too, but more lightly
-            for (let d = 140; d < dist - 120; d += 150) {
-                const px = x + Math.cos(angle) * d, py = y + Math.sin(angle) * d;
-                after(Math.round(d / 120), () => createExplosion(px, py, { radius: 70 * size, colors: ['#b3e5fc', '#ffffff'] }));
-            }
         });
     }
+    const KAME_GROOVE = 24; // half the width of the groove a size-1 beam cuts (the beam is ~80px)
 
     // [1] Kamehameha: Goku charges blue ki in his cupped hands, then fires a beam at the cursor.
     function castKamehameha(tx, ty) {
@@ -2453,11 +2708,13 @@
     // 11. DESTRUCTION
     // ==========================================
     // Punch a burning hole, tear paper shards out of it and shake letters loose around it.
-    function createExplosion(x, y, { radius = 60, colors = ['#4fc3f7', '#ffffff'] } = {}) {
+    // smoke scales the grey clouds it leaves (a dash carving a trench would bury itself in them)
+    // star: { dir, back, spikes } makes the hole a starburst splayed out toward dir (see addStarburst)
+    function createExplosion(x, y, { radius = 60, colors = ['#4fc3f7', '#ffffff'], smoke = 1, star = null } = {}) {
         const holeR = Math.round(radius * 0.55);
         generated.tear(nearVolume(x, y));
         disturbDebris(x, y, radius * 1.4, 9);
-        const blast = addCrater(x, y, holeR);
+        const blast = star ? addStarburst(x, y, holeR, star.dir, star.back, star.spikes) : addCrater(x, y, holeR);
         // What it tore out comes loose a tick later, so a big blast's work is spread over frames
         after(1, () => {
             spawnShards(x, y, holeR, blast.fresh);
@@ -2465,7 +2722,7 @@
             damageBlocks(blast.c);
             if (breakOffCards(x, y, blast.fresh)) scanPage(); // their ledges go with them
         });
-        for (let i = 0; i < 8 + holeR / 10; i++) {
+        for (let i = 0; i < (8 + holeR / 10) * smoke; i++) {
             const a = Math.random() * Math.PI * 2;
             const d = holeR * (0.8 + Math.random() * 0.7);
             spawnPuff(x + Math.cos(a) * d, y + Math.sin(a) * d, true);
@@ -2484,6 +2741,19 @@
                 decay: Math.random() * 0.03 + 0.01
             });
         }
+    }
+
+    // A straight cut through the page from (x1, y1) to (x2, y2), w either side of the line,
+    // tearing out what it crosses
+    function cutGroove(x1, y1, x2, y2, w) {
+        generated.tear(nearVolume(x2, y2) * 0.6);
+        const blast = addGroove(x1, y1, x2, y2, w);
+        after(1, () => {
+            spawnShards(blast.c.x, blast.c.y, w, blast.fresh);
+            loosenLetters(blast);
+            damageBlocks(blast.c);
+            if (breakOffCards(blast.c.x, blast.c.y, blast.fresh)) scanPage();
+        });
     }
 
     // ==========================================
@@ -2650,14 +2920,16 @@
             if (c.y < viewTop || c.y > viewBottom + 100 || flames.length > 1800) continue;
             const burning = c.age < c.burn;
             if (burning && Math.random() < 0.12) generated.crackle(nearVolume(c.x, c.y));
-            let n = burning ? c.R * 0.012 : c.R * 0.0015;
+            const size = c.seg ? c.len * 0.25 : c.R; // a groove burns along its length
+            let n = burning ? size * 0.012 : size * 0.0015;
             while (n > 0) {
                 if (Math.random() < n) spawnFlame(c);
                 n -= 1;
             }
             if (burning && puffs.length < 300 && Math.random() < 0.02) {
                 const a = -Math.PI / 2 + (Math.random() - 0.5) * 2;
-                spawnPuff(c.x + Math.cos(a) * c.R, c.y + Math.sin(a) * c.R, false);
+                const [px, py] = c.seg ? rimPoint(c) : [c.x + Math.cos(a) * c.R, c.y + Math.sin(a) * c.R];
+                spawnPuff(px, py, false);
             }
         }
         for (let i = puffs.length - 1; i >= 0; i--) {
@@ -2693,7 +2965,11 @@
             }
             const scale = fx.growTo ? fx.scale + (fx.growTo - fx.scale) * Math.min(1, fx.age / fx.growTime) : fx.scale;
             const stretch = fx.stretchX * (fx.stretchTime ? Math.min(1, fx.age / fx.stretchTime) : 1);
-            if (fx.follow) { fx.x = player.x; fx.y = player.y; }
+            if (fx.follow) {
+                fx.x = player.x + fx.offsetX * player.direction;
+                fx.y = player.y + fx.offsetY;
+                if (fx.offsetX) fx.facing = player.direction; // held in his hand: turns with him
+            }
             drawAnim(fx.anim, fx.x, fx.y, fx.facing, scale, alpha, fx.centered, fx.rotation, stretch);
         }
     }
@@ -2794,6 +3070,7 @@
         for (let i = effects.length - 1; i >= 0; i--) {
             const fx = effects[i];
             fx.age++;
+            fx.rotation += fx.spin;
             stepAnim(fx.anim);
             const expired = fx.life ? fx.age >= fx.life : fx.anim.done;
             if (expired) effects.splice(i, 1);

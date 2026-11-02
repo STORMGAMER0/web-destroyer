@@ -8,7 +8,11 @@
   "jump_down",
   "rs_throw",
   "tbb_body",
-  "tw_body"
+  "tw_body",
+  "rg_charge",
+  "rg_rush",
+  "rg_strike",
+  "rg_end"
  ],
  "anims": {
   "idle": {
@@ -104,6 +108,37 @@
    "anim": 3272,
    "bake": 0.6,
    "decimate": 2
+  },
+  "rg_charge": 1000,
+  "rg_rush": {
+   "anim": 1001,
+   "loop": true
+  },
+  "rg_strike": 1002,
+  "rg_end": 1003,
+  "rg_form": {
+   "anim": 1050,
+   "bake": 0.3
+  },
+  "rg_held": {
+   "anim": 1051,
+   "bake": 0.3,
+   "loop": true
+  },
+  "rg_gust": {
+   "anim": 1070,
+   "bake": 0.4,
+   "decimate": 2
+  },
+  "rg_big": {
+   "anim": 1090,
+   "bake": 0.27,
+   "add": true,
+   "loop": true
+  },
+  "rg_wind": {
+   "anim": 1060,
+   "bake": 0.8
   }
  }
 }

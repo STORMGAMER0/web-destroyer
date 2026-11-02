@@ -27,5 +27,10 @@
  "dash": "40,2",
  "jump": "40,3",
  "land": "52,1",
- "fly": "60,1"
+ "fly": "60,1",
+ "voice_rasengan": "0,132",
+ "rg_form": "5,21",
+ "rg_strike": "5,17",
+ "rg_grind": "1,9",
+ "rg_burst": "4,24"
 }

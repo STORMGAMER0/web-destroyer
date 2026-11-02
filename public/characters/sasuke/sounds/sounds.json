@@ -126,5 +126,29 @@
  "shinra_blast": [
   315970,
   10909
+ ],
+ "voice_chidori": [
+  326879,
+  8193
+ ],
+ "chidori_chirp": [
+  335072,
+  7916
+ ],
+ "chidori_buzz": [
+  342988,
+  12999
+ ],
+ "chidori_rush": [
+  355987,
+  1772
+ ],
+ "voice_chidori_hit": [
+  357759,
+  9656
+ ],
+ "chidori_hit": [
+  367415,
+  9865
  ]
 }

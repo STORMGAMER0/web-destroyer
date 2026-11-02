@@ -30,5 +30,11 @@
  "land": "52,1",
  "fly": "60,1",
  "voice_shinra": "0,90",
- "shinra_blast": "4,30"
+ "shinra_blast": "4,30",
+ "voice_chidori": "0,102",
+ "chidori_chirp": "5,43",
+ "chidori_buzz": "5,52",
+ "chidori_rush": "20,1",
+ "voice_chidori_hit": "0,37",
+ "chidori_hit": "5,42"
 }

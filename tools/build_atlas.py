@@ -2,7 +2,10 @@
 # usage: build_atlas.py <char_dir> <sff_out_dir> <keep.json> <out_dir>
 # keep.json: {"air": "<file>.air", "pixel": [names kept lossless], "anims": {name: spec}}
 #   spec = AIR action number, or {"anim": n, "bake": explod scale the game draws it at,
-#          "decimate": keep every Nth frame, "timescale": multiply frame times, "loop": true}
+#          "decimate": keep every Nth frame, "timescale": multiply frame times, "loop": true,
+#          "first": true to use the first of several actions with the same number (default: last),
+#          "add": true for an effect the character blends additively in code (Trans = add) though
+#          its AIR frames aren't marked so}
 import json,re,sys,os,io
 from PIL import Image,ImageChops,ImageMath
 char,src,keepf,out=sys.argv[1:5]
@@ -10,11 +13,14 @@ cfg=json.load(open(keepf))
 specs={name:(v if isinstance(v,dict) else {'anim':v}) for name,v in cfg['anims'].items()}
 PIXEL=set(cfg.get('pixel',[]))
 MAX=2048;PAD=2
-air={};cur=None
+air={};first={};cur=None
 for line in open(os.path.join(char,cfg['air']),encoding='latin-1'):
     l=line.split(';')[0].strip()
     m=re.match(r'\[\s*begin\s+action\s+(-?\d+)\s*\]',l,re.I)
-    if m: cur=int(m.group(1)); air[cur]=[]; continue
+    if m:
+        cur=int(m.group(1)); air[cur]=[]
+        if cur not in first: first[cur]=air[cur]
+        continue
     p=[x.strip() for x in l.split(',')]
     if cur is not None and len(p)>=5 and all(re.match(r'-?\d+$',x) for x in p[:5]):
         air[cur].append(dict(g=int(p[0]),i=int(p[1]),x=int(p[2]),y=int(p[3]),t=int(p[4]),
@@ -42,14 +48,14 @@ def load(key,scale,add):
     return sk
 for name,spec in specs.items():
     a=spec['anim']
-    fr=[f for f in air[a] if f['g']>=0 and f"{f['g']}_{f['i']}" in idx]
+    fr=[f for f in (first if spec.get('first') else air)[a] if f['g']>=0 and f"{f['g']}_{f['i']}" in idx]
     n=spec.get('decimate',1)
     if n>1: fr=[dict(f,t=f['t']*n) for f in fr[::n]]
     ts=spec.get('timescale',1)
     if ts!=1: fr=[dict(f,t=max(1,round(f['t']*ts))) for f in fr]
-    s=spec.get('bake',1);add=any(f['add'] for f in fr)
+    s=spec.get('bake',1);force=bool(spec.get('add'));add=force or any(f['add'] for f in fr)
     anims[name]={'loop':bool(spec.get('loop')),'blend':'add' if add else None,
-        'frames':[{'s':load(f"{f['g']}_{f['i']}",s,f['add']),'t':max(f['t'],1),'x':round(f['x']*s),'y':round(f['y']*s),'flip':f['flip']} for f in fr]}
+        'frames':[{'s':load(f"{f['g']}_{f['i']}",s,f['add'] or force),'t':max(f['t'],1),'x':round(f['x']*s),'y':round(f['y']*s),'flip':f['flip']} for f in fr]}
 # The character's own pixel-art frames stay lossless; big painted effects use lossy WebP (much smaller)
 pixel_keys={f['s'] for n in PIXEL if n in anims for f in anims[n]['frames']}
 # shelf pack, tallest first, into MAX x MAX sheets (pixel-art and effects packed separately)
