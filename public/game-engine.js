@@ -755,13 +755,17 @@
             for (let mx = 0; mx < w; mx++) {
                 const gx = mx0 + mx, gy = my0 + my;
                 const px = (gx + 0.5) * DMG, py = (gy + 0.5) * DMG;
-                if (py < sky) continue;
-                const { f: raw, owner: c } = craterField(px, py, near);
+                // A cell straddling the page's top edge still opens (it only shows backdrop);
+                // skipping it would leave a thin strip of page to stand on
+                if ((gy + 1) * DMG <= sky) continue;
+                const inSky = py < sky;
+                const { f: raw, owner: c } = craterField(px, Math.max(py, sky), near);
                 if (!c) continue;
                 const f = raw + (hash(gx, gy) - 0.5) * DMG * 1.6; // ragged pixel edge
                 const p = (my * w + mx) * 4;
                 if (f < 0) {
                     put(holes, p, 0, 0, 0, 255);
+                    if (inSky) continue;
                     // Torn paper lip hanging into the bottom of the hole
                     const lip = c.R * (0.07 + hash(gx, 7) * 0.09);
                     if (py - c.y > c.R * 0.25 && f > -lip) {
@@ -770,7 +774,7 @@
                     } else if (f > -DMG * 1.2) {
                         put(decal, p, 24, 16, 14, 255); // charred rim
                     }
-                } else if (f < c.soot) {
+                } else if (f < c.soot && !inSky) {
                     // Soot halo: solid near the edge, dithered further out
                     const t = f / c.soot;
                     const keep = Math.pow(1 - t, 1.3) > BAYER[(gy & 3) * 4 + (gx & 3)] / 16;
@@ -1200,6 +1204,21 @@
         e.preventDefault();
         e.stopPropagation();
     }, true);
+
+    // The snapshot has no scripts, but form fields still work on their own: a search box with
+    // autofocus would type every movement key. Lock them and keep focus off the page.
+    for (const el of document.querySelectorAll('input, textarea, select, [contenteditable]')) {
+        el.removeAttribute('autofocus');
+        if (el.isContentEditable) el.contentEditable = 'false';
+        else if (el.tagName !== 'SELECT') el.readOnly = true; // disabling would grey it out
+        el.tabIndex = -1;
+    }
+    const blurPage = () => {
+        const el = document.activeElement;
+        if (el && el !== body && el !== uiHost) el.blur();
+    };
+    blurPage();
+    window.addEventListener('focusin', e => { if (!isUiEvent(e)) blurPage(); }, true);
 
     function setPlayerAnim(name) {
         name = formAnim(name);
@@ -1896,7 +1915,8 @@
                     if (best !== null && p.y >= best) continue;
                     if (p.o) {
                         if (p.o === self) continue;
-                    } else if (inHole(Math.min(Math.max((x1 + x2) / 2, p.x1), p.x2), p.y)) {
+                    } else if (inHole(Math.min(Math.max((x1 + x2) / 2, p.x1), p.x2), Math.max(p.y, pageTop) + 1)) {
+                        // Checked just below the ledge's top, so a ledge on the page's edge falls too
                         continue;
                     }
                     best = p.y;
