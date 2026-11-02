@@ -1,0 +1,423 @@
+{
+ "air": "Goku.air",
+ "pixel": [
+  "idle_0",
+  "run_0",
+  "jump_up_0",
+  "jump_peak_0",
+  "jump_down_0",
+  "kame_0",
+  "ikame_0",
+  "volley_0",
+  "idle_1",
+  "run_1",
+  "jump_up_1",
+  "jump_peak_1",
+  "jump_down_1",
+  "kame_1",
+  "ikame_1",
+  "volley_1",
+  "idle_2",
+  "run_2",
+  "jump_up_2",
+  "jump_peak_2",
+  "jump_down_2",
+  "kame_2",
+  "ikame_2",
+  "volley_2",
+  "idle_3",
+  "run_3",
+  "jump_up_3",
+  "jump_peak_3",
+  "jump_down_3",
+  "kame_3",
+  "ikame_3",
+  "volley_3",
+  "idle_4",
+  "run_4",
+  "jump_up_4",
+  "jump_peak_4",
+  "jump_down_4",
+  "kame_4",
+  "ikame_4",
+  "volley_4",
+  "idle_5",
+  "run_5",
+  "jump_up_5",
+  "jump_peak_5",
+  "jump_down_5",
+  "kame_5",
+  "ikame_5",
+  "volley_5",
+  "idle_6",
+  "run_6",
+  "jump_up_6",
+  "jump_peak_6",
+  "jump_down_6",
+  "kame_6",
+  "ikame_6",
+  "volley_6",
+  "idle_7",
+  "run_7",
+  "jump_up_7",
+  "jump_peak_7",
+  "jump_down_7",
+  "kame_7",
+  "ikame_7",
+  "volley_7",
+  "idle_8",
+  "run_8",
+  "jump_up_8",
+  "jump_peak_8",
+  "jump_down_8",
+  "kame_8",
+  "ikame_8",
+  "volley_8",
+  "tf_1",
+  "tf_2",
+  "tf_3",
+  "tf_4",
+  "tf_5",
+  "tf_6",
+  "tf_7",
+  "tf_8",
+  "sb_body_0",
+  "sb_body_4",
+  "df_body_3",
+  "df_body_6"
+ ],
+ "anims": {
+  "idle_0": {
+   "anim": 0,
+   "loop": true
+  },
+  "run_0": {
+   "anim": 20,
+   "loop": true
+  },
+  "jump_up_0": 41,
+  "jump_peak_0": 42,
+  "jump_down_0": 43,
+  "kame_0": 1198,
+  "ikame_0": 1350,
+  "volley_0": 1148,
+  "idle_1": {
+   "anim": 10000,
+   "loop": true
+  },
+  "run_1": {
+   "anim": 10020,
+   "loop": true
+  },
+  "jump_up_1": 10041,
+  "jump_peak_1": 10042,
+  "jump_down_1": 10043,
+  "kame_1": 2198,
+  "ikame_1": 2350,
+  "volley_1": 2148,
+  "idle_2": {
+   "anim": 20000,
+   "loop": true
+  },
+  "run_2": {
+   "anim": 20020,
+   "loop": true
+  },
+  "jump_up_2": 20041,
+  "jump_peak_2": 20042,
+  "jump_down_2": 20043,
+  "kame_2": 3198,
+  "ikame_2": 3350,
+  "volley_2": 3148,
+  "idle_3": {
+   "anim": 30000,
+   "loop": true
+  },
+  "run_3": {
+   "anim": 30020,
+   "loop": true
+  },
+  "jump_up_3": 30041,
+  "jump_peak_3": 30042,
+  "jump_down_3": 30043,
+  "kame_3": 4198,
+  "ikame_3": 4350,
+  "volley_3": 4148,
+  "idle_4": {
+   "anim": 40000,
+   "loop": true
+  },
+  "run_4": {
+   "anim": 40020,
+   "loop": true
+  },
+  "jump_up_4": 40041,
+  "jump_peak_4": 40042,
+  "jump_down_4": 40043,
+  "kame_4": 5198,
+  "ikame_4": 5350,
+  "volley_4": 5148,
+  "idle_5": {
+   "anim": 50000,
+   "loop": true
+  },
+  "run_5": {
+   "anim": 50020,
+   "loop": true
+  },
+  "jump_up_5": 50041,
+  "jump_peak_5": 50042,
+  "jump_down_5": 50043,
+  "kame_5": 6198,
+  "ikame_5": 6350,
+  "volley_5": 6148,
+  "idle_6": {
+   "anim": 60000,
+   "loop": true
+  },
+  "run_6": {
+   "anim": 60020,
+   "loop": true
+  },
+  "jump_up_6": 60041,
+  "jump_peak_6": 60042,
+  "jump_down_6": 60043,
+  "kame_6": 7198,
+  "ikame_6": 7350,
+  "volley_6": 7148,
+  "idle_7": {
+   "anim": 70000,
+   "loop": true
+  },
+  "run_7": {
+   "anim": 70020,
+   "loop": true
+  },
+  "jump_up_7": 70041,
+  "jump_peak_7": 70042,
+  "jump_down_7": 70043,
+  "kame_7": 8198,
+  "ikame_7": 8350,
+  "volley_7": 8148,
+  "idle_8": {
+   "anim": 80000,
+   "loop": true
+  },
+  "run_8": {
+   "anim": 80020,
+   "loop": true
+  },
+  "jump_up_8": 80041,
+  "jump_peak_8": 80042,
+  "jump_down_8": 80043,
+  "kame_8": 9198,
+  "ikame_8": 9350,
+  "volley_8": 9148,
+  "tf_1": {
+   "anim": 7000,
+   "timescale": 0.667
+  },
+  "tf_2": {
+   "anim": 8000,
+   "timescale": 0.263
+  },
+  "tf_3": {
+   "anim": 9000,
+   "timescale": 0.263
+  },
+  "tf_4": {
+   "anim": 9005,
+   "timescale": 0.667
+  },
+  "tf_5": {
+   "anim": 9096,
+   "timescale": 0.667
+  },
+  "tf_6": {
+   "anim": 9093,
+   "timescale": 0.667
+  },
+  "tf_7": {
+   "anim": 9400,
+   "timescale": 0.263
+  },
+  "tf_8": {
+   "anim": 9098,
+   "timescale": 0.263
+  },
+  "sb_body_0": {
+   "anim": 6160,
+   "timescale": 0.3
+  },
+  "sb_body_4": {
+   "anim": 88169,
+   "timescale": 0.3
+  },
+  "df_body_3": {
+   "anim": 9160,
+   "timescale": 0.5
+  },
+  "df_body_6": {
+   "anim": 88168,
+   "timescale": 0.5
+  },
+  "charge": {
+   "anim": 6018,
+   "bake": 0.3
+  },
+  "kame_glow": {
+   "anim": 6121,
+   "bake": 0.5
+  },
+  "beam": 6122,
+  "beam_head": {
+   "anim": 6123,
+   "bake": 0.5
+  },
+  "kame_boom": {
+   "anim": 6124,
+   "bake": 1.5
+  },
+  "tp_out": {
+   "anim": 6071,
+   "bake": 0.35
+  },
+  "tp_in": {
+   "anim": 6072,
+   "bake": 0.35
+  },
+  "ki_flash": {
+   "anim": 6131,
+   "bake": 0.4
+  },
+  "ki_ball": {
+   "anim": 6132,
+   "bake": 0.5,
+   "loop": true
+  },
+  "ki_boom": {
+   "anim": 6113,
+   "bake": 0.75
+  },
+  "sb_sphere": {
+   "anim": 6161,
+   "loop": true
+  },
+  "sb_boom": {
+   "anim": 6163,
+   "bake": 2
+  },
+  "smoke": {
+   "anim": 6011,
+   "bake": 0.4
+  },
+  "df_aura": {
+   "anim": 9161,
+   "bake": 0.75
+  },
+  "dragon": {
+   "anim": 9162,
+   "bake": 0.75,
+   "loop": true
+  },
+  "df_spark": {
+   "anim": 9163,
+   "bake": 0.5
+  },
+  "df_boom": {
+   "anim": 9164,
+   "bake": 1.5
+  },
+  "tf_ring_0": {
+   "anim": 6019,
+   "bake": 1.25
+  },
+  "tf_ring_1": {
+   "anim": 16019,
+   "bake": 1.25
+  },
+  "tf_ring_4": {
+   "anim": 46019,
+   "bake": 1.25
+  },
+  "tf_ring_5": {
+   "anim": 56019,
+   "bake": 1.25
+  },
+  "aura_0": {
+   "anim": 6012,
+   "bake": 0.46,
+   "loop": true
+  },
+  "aura_1": {
+   "anim": 16012,
+   "bake": 0.46,
+   "loop": true
+  },
+  "aura_2": {
+   "anim": 26012,
+   "bake": 0.46,
+   "loop": true
+  },
+  "aura_3": {
+   "anim": 36012,
+   "bake": 0.46,
+   "loop": true
+  },
+  "god_fire_a": {
+   "anim": 41012,
+   "bake": 1.0,
+   "loop": true
+  },
+  "god_fire_b": {
+   "anim": 49012,
+   "bake": 1.0,
+   "loop": true
+  },
+  "blue_aura_a": {
+   "anim": 53012,
+   "bake": 0.3,
+   "loop": true
+  },
+  "blue_aura_b": {
+   "anim": 57012,
+   "bake": 0.3,
+   "loop": true
+  },
+  "kk_aura_a": {
+   "anim": 67012,
+   "bake": 0.3,
+   "loop": true
+  },
+  "kk_aura_b": {
+   "anim": 68012,
+   "bake": 0.3,
+   "loop": true
+  },
+  "kk_flare": {
+   "anim": 655012,
+   "bake": 1.0,
+   "loop": true
+  },
+  "ui_burst": {
+   "anim": 955012,
+   "bake": 0.3
+  },
+  "ui_aura": {
+   "anim": 855012,
+   "bake": 0.3,
+   "decimate": 3,
+   "loop": true
+  },
+  "lightning": {
+   "anim": 8001,
+   "bake": 1.6,
+   "loop": true
+  },
+  "tf_flash": {
+   "anim": 7001,
+   "bake": 0.6
+  },
+  "tf_glow": 6213
+ }
+}

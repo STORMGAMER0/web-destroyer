@@ -2,7 +2,7 @@
 # usage: build_atlas.py <char_dir> <sff_out_dir> <keep.json> <out_dir>
 # keep.json: {"air": "<file>.air", "pixel": [names kept lossless], "anims": {name: spec}}
 #   spec = AIR action number, or {"anim": n, "bake": explod scale the game draws it at,
-#          "decimate": keep every Nth frame, "loop": true}
+#          "decimate": keep every Nth frame, "timescale": multiply frame times, "loop": true}
 import json,re,sys,os,io
 from PIL import Image,ImageChops,ImageMath
 char,src,keepf,out=sys.argv[1:5]
@@ -45,6 +45,8 @@ for name,spec in specs.items():
     fr=[f for f in air[a] if f['g']>=0 and f"{f['g']}_{f['i']}" in idx]
     n=spec.get('decimate',1)
     if n>1: fr=[dict(f,t=f['t']*n) for f in fr[::n]]
+    ts=spec.get('timescale',1)
+    if ts!=1: fr=[dict(f,t=max(1,round(f['t']*ts))) for f in fr]
     s=spec.get('bake',1);add=any(f['add'] for f in fr)
     anims[name]={'loop':bool(spec.get('loop')),'blend':'add' if add else None,
         'frames':[{'s':load(f"{f['g']}_{f['i']}",s,f['add']),'t':max(f['t'],1),'x':round(f['x']*s),'y':round(f['y']*s),'flip':f['flip']} for f in fr]}

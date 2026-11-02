@@ -75,7 +75,12 @@
     // character files: sprites keep their real axis (feet / center point) and
     // anims keep MUGEN frame timing (ticks at 60 per second).
     // Which character to play: ?char=sasuke on the page URL (Naruto when missing or unknown)
-    const CHARACTERS = ['naruto', 'sasuke'];
+    const CHARACTERS = ['naruto', 'sasuke', 'goku'];
+    // Characters with transformations: form names in the order the transform key cycles them
+    const FORMS = {
+        goku: ['Base', 'Super Saiyan', 'Super Saiyan 2', 'Super Saiyan 3', 'Super Saiyan God',
+               'Super Saiyan Blue', 'Blue Kaioken', 'Ultra Instinct Sign', 'Mastered Ultra Instinct']
+    };
     const requested = (new URLSearchParams(location.search).get('char') || '').toLowerCase();
     const CHAR_ID = CHARACTERS.includes(requested) ? requested : 'naruto';
     const ASSET_DIR = ENGINE_ORIGIN + '/characters/' + CHAR_ID + '/';
@@ -263,7 +268,8 @@
     // Draw the current frame with its axis at (x, y). facing -1 mirrors around the axis.
     // centered ignores the axis and centers the sprite on (x, y) instead.
     // rotation (radians) turns the sprite around (x, y), e.g. to point an arrow along its flight.
-    function drawAnim(state, x, y, facing = 1, scale = 1, alpha = 1, centered = false, rotation = 0) {
+    // stretchX lengthens it along its own x axis only (beams reaching a target).
+    function drawAnim(state, x, y, facing = 1, scale = 1, alpha = 1, centered = false, rotation = 0, stretchX = 1) {
         const anim = charData.anims[state.name];
         const frame = anim.frames[state.index];
         const spr = charData.sprites[frame.s];
@@ -277,7 +283,7 @@
         if (anim.blend === 'add') ctx.globalCompositeOperation = 'lighter';
         ctx.translate(x + frame.x * facing * scale, y + frame.y * scale);
         if (rotation) ctx.rotate(rotation);
-        ctx.scale(flipH ? -scale : scale, flipV ? -scale : scale);
+        ctx.scale((flipH ? -scale : scale) * stretchX, flipV ? -scale : scale);
         ctx.drawImage(sheets[spr.sheet], spr.x, spr.y, spr.w, spr.h, -ax, -ay, spr.w, spr.h);
         ctx.restore();
     }
@@ -509,7 +515,8 @@
             <h4>Controls</h4>
             <div class="keys">
                 <b>A / D</b> run · <b>W / Space</b> jump, hold to fly<br>
-                <b>S</b> drop through · <b>Number keys</b> jutsu · <b>Click</b> fire
+                <b>S</b> drop through · <b>Number keys</b> jutsu · <b>Click</b> fire<br>
+                <b>T</b> transform (characters with forms)
             </div>
         </div>`;
     const panel = ui.querySelector('.panel');
@@ -1111,27 +1118,47 @@
         direction: 1,
         hidden: false,       // true while a summon (Kurama, Susanoo) stands in for the character
         casting: false,
-        anim: createAnim('jump_down')
+        floatTicks: 0,       // > 0 while hovering in place (e.g. after Instant Transmission)
+        form: 0,             // index into FORMS[CHAR_ID] for characters that transform
+        anim: null
     };
+
+    // A character with forms has one body animation per form ("idle_3"); others just "idle"
+    function formAnim(name) {
+        const perForm = `${name}_${player.form}`;
+        return charData.anims[perForm] ? perForm : name;
+    }
+    player.anim = createAnim(formAnim('jump_down'));
 
     const ROSTER = {
         naruto: [
-            { key: '1', name: 'Rasenshuriken', cast: castRasenshuriken },
-            { key: '2', name: 'Tailed Beast Bomb', cast: castTailedBeastBomb },
-            { key: '3', name: 'Kurama Bijuudama', cast: castKuramaBijuudama },
-            { key: '4', name: 'Twin Rasenshuriken', cast: castTwinRasenshuriken },
-            { key: '5', name: 'Lava Rasenshuriken', cast: castLavaRasenshuriken }
+            { name: 'Rasenshuriken', cast: castRasenshuriken },
+            { name: 'Tailed Beast Bomb', cast: castTailedBeastBomb },
+            { name: 'Kurama Bijuudama', cast: castKuramaBijuudama },
+            { name: 'Twin Rasenshuriken', cast: castTwinRasenshuriken },
+            { name: 'Lava Rasenshuriken', cast: castLavaRasenshuriken }
         ],
         sasuke: [
-            { key: '1', name: 'Great Fireball', cast: castGreatFireball },
-            { key: '2', name: 'Susanoo Arrow', cast: castSusanooArrow },
-            { key: '3', name: 'Chibaku Tensei', cast: castChibakuTensei },
-            { key: '4', name: "Indra's Arrow", cast: castIndrasArrow },
-            { key: '5', name: 'Chidori Senbon', cast: castChidoriSenbon },
-            { key: '6', name: 'Shinra Tensei', cast: castShinraTensei }
+            { name: 'Great Fireball', cast: castGreatFireball },
+            { name: 'Susanoo Arrow', cast: castSusanooArrow },
+            { name: 'Chibaku Tensei', cast: castChibakuTensei },
+            { name: "Indra's Arrow", cast: castIndrasArrow },
+            { name: 'Chidori Senbon', cast: castChidoriSenbon },
+            { name: 'Shinra Tensei', cast: castShinraTensei }
         ]
     };
-    const JUTSU = ROSTER[CHAR_ID];
+    ROSTER.goku = [
+        { name: 'Kamehameha', cast: castKamehameha },
+        { name: 'Instant Kamehameha', cast: castInstantKamehameha },
+        { name: 'Ki Blast Volley', cast: castKiVolley },
+        { name: 'Spirit Bomb', cast: castSpiritBomb, forms: [0, 4] },
+        { name: 'Dragon Fist', cast: castDragonFist, forms: [3, 6] }
+    ];
+    const CHAR_FORMS = FORMS[CHAR_ID] || null;
+    // The attacks available right now (some belong to particular forms); number keys follow this order
+    function jutsuList() {
+        return ROSTER[CHAR_ID].filter(j => !j.forms || j.forms.includes(player.form));
+    }
     let selectedJutsu = 0;
 
     const GAME_KEYS = new Set([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
@@ -1140,8 +1167,9 @@
         const k = e.key.toLowerCase();
         keys[k] = true;
         if (GAME_KEYS.has(k)) e.preventDefault(); // don't scroll the page
-        const slot = JUTSU.findIndex(j => j.key === e.key);
-        if (slot !== -1) selectedJutsu = slot;
+        const slot = parseInt(e.key, 10) - 1;
+        if (slot >= 0 && slot < jutsuList().length) selectedJutsu = slot;
+        if (k === 't' && CHAR_FORMS && !player.casting) castTransform();
         if ((k === 's' || k === 'arrowdown') && player.isGrounded) player.dropTicks = 14;
     });
     window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
@@ -1155,7 +1183,8 @@
         if (isUiEvent(e)) return;
         e.preventDefault(); // no text selection or focusing page inputs
         if (e.button === 0 && !player.casting) {
-            JUTSU[selectedJutsu].cast(e.clientX + window.scrollX, e.clientY + window.scrollY);
+            const jutsu = jutsuList()[selectedJutsu];
+            if (jutsu) jutsu.cast(e.clientX + window.scrollX, e.clientY + window.scrollY);
         }
     }, true);
 
@@ -1167,6 +1196,7 @@
     }, true);
 
     function setPlayerAnim(name) {
+        name = formAnim(name);
         if (player.anim.name !== name) player.anim = createAnim(name);
     }
 
@@ -1185,6 +1215,10 @@
             fade: opts.fade || 0,        // ticks of fade-out at the end of life
             growTo: opts.growTo || null, // scale reached after growTime ticks
             growTime: opts.growTime || 30,
+            rotation: opts.rotation || 0,
+            stretchX: opts.stretchX || 1,     // beams: length multiplier along the sprite's x axis
+            stretchTime: opts.stretchTime || 0, // ticks for the stretch to grow from 0
+            follow: !!opts.follow,       // stay on the character's feet (auras)
             age: 0
         };
         effects.push(fx);
@@ -1586,6 +1620,224 @@
         after(60, endCast);
     }
 
+    // ---------------- Goku ----------------
+
+    // Hands for ki attacks: in front of the chest
+    function gokuHands() {
+        return { x: player.x + 26 * player.direction, y: player.y - 48 };
+    }
+
+    // A Kamehameha beam from (x, y) to the target: it shoots out, carves a groove along its path
+    // and explodes at the end
+    function fireBeam(x, y, tx, ty, size) {
+        const angle = Math.atan2(ty - y, tx - x);
+        const dist = Math.max(40, Math.hypot(tx - x, ty - y));
+        playSound('voice_kame_fire');
+        playSound('kame_fire', { volume: 0.8 });
+        spawnEffect('beam', x, y, { rotation: angle, stretchX: dist / 860, stretchTime: 10, scale: size, life: 55, fade: 15 });
+        spawnEffect('beam_head', x, y, { rotation: angle, scale: size * 1.2, life: 55, fade: 15 });
+        after(10, () => {
+            const v = Math.max(0.3, nearVolume(tx, ty));
+            playSound('kame_boom', { volume: 0.9 * v });
+            playSound('big_boom', { volume: 0.6 * v });
+            spawnEffect('kame_boom', tx, ty, { centered: true, scale: 1.2 * size });
+            createExplosion(tx, ty, { radius: 200 * size, colors: ['#e1f5fe', '#4fc3f7', '#ffffff'] });
+            // The beam's path is scorched too, but more lightly
+            for (let d = 140; d < dist - 120; d += 150) {
+                const px = x + Math.cos(angle) * d, py = y + Math.sin(angle) * d;
+                after(Math.round(d / 120), () => createExplosion(px, py, { radius: 70 * size, colors: ['#b3e5fc', '#ffffff'] }));
+            }
+        });
+    }
+
+    // [1] Kamehameha: Goku charges blue ki in his cupped hands, then fires a beam at the cursor.
+    function castKamehameha(tx, ty) {
+        faceTarget(tx);
+        startCast('kame');
+        playSound('charge', { volume: 0.5 });
+        const h = gokuHands();
+        spawnEffect('charge', h.x, h.y, { centered: true, scale: 0.8, life: 20 });
+        // kame pose: charge on the 2nd frame (20 ticks), fire on the 3rd (70)
+        after(20, () => {
+            playSound('voice_kame_charge');
+            playSound('kame_charge', { volume: 0.6 });
+            const g = gokuHands();
+            spawnEffect('kame_glow', g.x - 30 * player.direction, g.y, { centered: true, life: 50, fade: 10 });
+        });
+        after(70, () => {
+            const g = gokuHands();
+            fireBeam(g.x, g.y, tx, ty, 1);
+        });
+        after(120, endCast);
+    }
+
+    // [2] Instant Kamehameha: Goku vanishes, reappears beside the target and fires point-blank.
+    function castInstantKamehameha(tx, ty) {
+        faceTarget(tx);
+        startCast('ikame');
+        playSound('charge', { volume: 0.5 });
+        after(20, () => {
+            playSound('voice_ikame');
+            playSound('kame_charge', { volume: 0.6 });
+        });
+        after(55, () => {
+            playSound('vanish', { volume: 0.7 });
+            spawnEffect('tp_out', player.x, player.y - 45, { centered: true, scale: 1.2 });
+            player.hidden = true;
+        });
+        after(62, () => {
+            // Reappear 220px short of the target, hands level with it, and hang there
+            const side = tx >= player.x ? 1 : -1;
+            player.x = tx - 220 * side;
+            player.y = ty + 48;
+            player.vx = 0; player.vy = 0;
+            player.floatTicks = 60;
+            player.direction = side;
+            player.hidden = false;
+            spawnEffect('tp_in', player.x, player.y - 45, { centered: true, scale: 1.2 });
+            playSound('vanish', { volume: 0.5 });
+        });
+        after(75, () => {
+            const g = gokuHands();
+            fireBeam(g.x, g.y, tx, ty, 1.2);
+        });
+        after(125, endCast);
+    }
+
+    // [3] Ki Blast Volley: rapid alternating ki blasts that pepper the area around the cursor.
+    function castKiVolley(tx, ty) {
+        faceTarget(tx);
+        startCast('volley');
+        after(15, () => playSound('voice_volley'));
+        // volley pose fires on every other frame from 20 ticks: one blast every 6 ticks
+        for (let t = 20; t <= 74; t += 6) {
+            after(t, () => {
+                const g = gokuHands();
+                spawnEffect('ki_flash', g.x, g.y - 8, { facing: player.direction });
+                playSound('ki_shot', { volume: 0.5, rate: 0.9 + Math.random() * 0.2, minGap: 0 });
+                const sx = (Math.random() - 0.5) * 90, sy = (Math.random() - 0.5) * 70;
+                launch(g.x, g.y - 8, tx + sx, ty + sy, 14, [
+                    { name: 'ki_ball', scale: 0.9 },
+                ], (x, y) => {
+                    spawnEffect('ki_boom', x, y, { centered: true, scale: 0.9 });
+                    createExplosion(x, y, { radius: 60, colors: ['#ffe082', '#ffca28', '#ffffff'] });
+                });
+            });
+        }
+        after(90, endCast);
+    }
+
+    // [4] Spirit Bomb (Base, God): Goku raises his hands, a giant sphere of energy gathers above
+    // him, and he hurls it at the cursor for the biggest blast he has.
+    function castSpiritBomb(tx, ty) {
+        faceTarget(tx);
+        startCast('sb_body');
+        playSound('voice_sb_a');
+        playSound('charge', { volume: 0.5 });
+        const cx = player.x, cy = player.y - 230;
+        // sb_body raises the arms 15 ticks in and throws at 75
+        after(15, () => {
+            playSound('sb_gather', { volume: 0.6 });
+            spawnEffect('sb_sphere', cx, cy, { centered: true, scale: 0.08, growTo: 0.9, growTime: 55, life: 60 });
+            for (let i = 0; i < 6; i++) {
+                const a = Math.random() * Math.PI * 2;
+                after(i * 8, () => spawnEffect('charge', cx + Math.cos(a) * 160, cy + Math.sin(a) * 120, { centered: true, scale: 0.6, life: 15 }));
+            }
+        });
+        after(75, () => {
+            playSound('voice_sb_b');
+            playSound('sb_throw', { volume: 0.7 });
+            launch(cx, cy, tx, ty, 5, [
+                { name: 'sb_sphere', scale: 0.9 },
+            ], (x, y) => {
+                const v = Math.max(0.4, nearVolume(x, y));
+                playSound('big_boom', { volume: v });
+                playSound('kame_boom', { volume: 0.8 * v });
+                spawnEffect('sb_boom', x, y, { centered: true, scale: 1.3 });
+                spawnEffect('smoke', x, y + 120, { scale: 2.5 });
+                createExplosion(x, y, { radius: 330, colors: ['#e1f5fe', '#81d4fa', '#ffffff'] });
+            });
+        });
+        after(110, endCast);
+    }
+
+    // [5] Dragon Fist (SSJ3, Blue Kaioken): Goku's punch unleashes a golden dragon that flies
+    // head-first at the cursor and erupts on impact.
+    function castDragonFist(tx, ty) {
+        faceTarget(tx);
+        startCast('df_body');
+        playSound('voice_df');
+        playSound('charge', { volume: 0.5 });
+        after(20, () => spawnEffect('df_aura', player.x + 20 * player.direction, player.y - 40, { facing: player.direction, life: 40, fade: 10 }));
+        // df_body throws the punch 35 ticks in
+        after(35, () => {
+            playSound('df_fire', { volume: 0.8 });
+            const g = gokuHands();
+            launch(g.x, g.y, tx, ty, 11, [
+                { name: 'dragon', scale: 1.1, aim: 0, useAxis: true },
+            ], (x, y) => {
+                const v = Math.max(0.4, nearVolume(x, y));
+                playSound('big_boom', { volume: v });
+                spawnEffect('df_boom', x, y, { centered: true, scale: 1.1 });
+                for (let i = 0; i < 4; i++) {
+                    spawnEffect('df_spark', x + (Math.random() - 0.5) * 160, y + (Math.random() - 0.5) * 120, { centered: true });
+                }
+                createExplosion(x, y, { radius: 280, colors: ['#ffd54f', '#ffb300', '#fff8e1'] });
+            });
+        });
+        after(100, endCast);
+    }
+
+    // Transform: power up to the next form (T). After the last form Goku drops back to base.
+    // Each form's aura while powering up: [effect, scale]
+    const FORM_AURA = {
+        0: [['aura_0', 1]], 1: [['aura_1', 1]], 2: [['aura_2', 1], ['lightning', 1]], 3: [['aura_3', 1], ['lightning', 1]],
+        4: [['god_fire_a', 0.9], ['god_fire_b', 0.9]], 5: [['blue_aura_a', 1], ['blue_aura_b', 1]],
+        6: [['kk_aura_a', 1], ['kk_aura_b', 1], ['kk_flare', 0.9]], 7: [['ui_burst', 1], ['ui_aura', 1]], 8: [['ui_aura', 1], ['ui_burst', 1]]
+    };
+    const FORM_RING = { 1: 'tf_ring_1', 2: 'tf_ring_1', 3: 'tf_ring_1', 4: 'tf_ring_4', 5: 'tf_ring_5', 6: 'tf_ring_5' };
+    const FORM_VOICE = { 1: 'voice_tf_1', 2: 'voice_tf_2', 3: 'voice_tf_3', 5: 'voice_tf_1', 6: 'voice_tf_1', 7: 'voice_tf_7', 8: 'voice_tf_7' };
+
+    function castTransform() {
+        const next = (player.form + 1) % CHAR_FORMS.length;
+        player.casting = true;
+        player.vx = 0;
+        if (next === 0) {
+            // Powering down is quick: a puff of smoke and he's back to base
+            playSound('tf_burst', { volume: 0.6 });
+            spawnEffect('smoke', player.x, player.y, { scale: 1.5 });
+            spawnEffect('tf_flash', player.x, player.y - 45, { centered: true, scale: 0.5, life: 12, fade: 12 });
+            player.form = 0;
+            setPlayerAnim('idle');
+            after(20, endCast);
+            return;
+        }
+        const anim = `tf_${next}`;
+        player.anim = createAnim(anim);
+        const total = charData.anims[anim].frames.reduce((n, f) => n + f.t, 0);
+        const half = Math.round(total * 0.55);
+        playSound('charge', { volume: 0.5 });
+        playSound('tf_powerup', { volume: 0.7 });
+        if (FORM_VOICE[next]) playSound(FORM_VOICE[next]);
+        for (const [name, scale] of FORM_AURA[player.form]) spawnEffect(name, player.x, player.y, { scale, follow: true, life: half, fade: 10, behind: true });
+        if (FORM_RING[next]) spawnEffect(FORM_RING[next], player.x, player.y, { follow: true });
+        for (let t = 12; t < total; t += 23) after(t, () => playSound('tf_pulse', { volume: 0.4, minGap: 0 }));
+        for (let t = 6; t < total; t += 15) after(t, () => spawnEffect('smoke', player.x + (Math.random() - 0.5) * 60, player.y, { scale: 1 }));
+        // The new form appears partway through: flash, burst and its own aura
+        after(half, () => {
+            playSound('tf_burst', { volume: 0.7 });
+            playSound('tf_flash', { volume: 0.6 });
+            spawnEffect('tf_flash', player.x, player.y - 45, { centered: true, scale: 0.7, life: 14, fade: 14 });
+            for (const [name, scale] of FORM_AURA[next]) spawnEffect(name, player.x, player.y, { scale, follow: true, life: total - half + 25, fade: 20, behind: true });
+            if (next >= 2) spawnEffect('lightning', player.x, player.y - 40, { follow: false, centered: true, life: 30, fade: 10 });
+        });
+        after(total, () => {
+            player.form = next;
+            endCast();
+            setPlayerAnim('idle');
+        });
+    }
+
     // ==========================================
     // 11. DESTRUCTION
     // ==========================================
@@ -1678,7 +1930,12 @@
         }
 
         const prevY = player.y;
-        player.vy = Math.min(player.vy + player.gravity, 16);
+        if (player.floatTicks > 0) {
+            player.floatTicks--;
+            player.vy = 0;
+        } else {
+            player.vy = Math.min(player.vy + player.gravity, 16);
+        }
         player.x += player.vx;
         player.y += player.vy;
         if (player.dropTicks > 0) player.dropTicks--;
@@ -1805,7 +2062,9 @@
                 alpha = Math.max(0, (fx.life - fx.age) / fx.fade);
             }
             const scale = fx.growTo ? fx.scale + (fx.growTo - fx.scale) * Math.min(1, fx.age / fx.growTime) : fx.scale;
-            drawAnim(fx.anim, fx.x, fx.y, fx.facing, scale, alpha, fx.centered);
+            const stretch = fx.stretchX * (fx.stretchTime ? Math.min(1, fx.age / fx.stretchTime) : 1);
+            if (fx.follow) { fx.x = player.x; fx.y = player.y; }
+            drawAnim(fx.anim, fx.x, fx.y, fx.facing, scale, alpha, fx.centered, fx.rotation, stretch);
         }
     }
 
@@ -1842,9 +2101,18 @@
         ctx.save();
         ctx.font = 'bold 13px system-ui, sans-serif';
         ctx.textBaseline = 'top';
-        JUTSU.forEach((j, i) => {
+        const list = jutsuList();
+        if (selectedJutsu >= list.length) selectedJutsu = 0;
+        if (CHAR_FORMS) {
+            const label = `${CHAR_FORMS[player.form]}  ·  [T] transform`;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+            ctx.fillRect(12, 12 + list.length * 26, ctx.measureText(label).width + 16, 22);
+            ctx.fillStyle = '#ffd54f';
+            ctx.fillText(label, 20, 16 + list.length * 26);
+        }
+        list.forEach((j, i) => {
             const active = i === selectedJutsu;
-            const label = `[${j.key}] ${j.name}`;
+            const label = `[${i + 1}] ${j.name}`;
             const w = ctx.measureText(label).width + 16;
             const y = 12 + i * 26;
             ctx.fillStyle = active ? 'rgba(255, 152, 0, 0.9)' : 'rgba(0, 0, 0, 0.55)';
@@ -1962,7 +2230,7 @@
             for (const l of p.layers) {
                 // aim = the angle (degrees) the sprite already points at in the sheet
                 const rotation = l.aim === undefined ? 0 : heading - l.aim * Math.PI / 180;
-                drawAnim(l.anim, p.x, p.y, 1, l.scale * (l.grow ? grow : 1), 1, true, rotation);
+                drawAnim(l.anim, p.x, p.y, 1, l.scale * (l.grow ? grow : 1), 1, !l.useAxis, rotation);
             }
         }
 
