@@ -178,9 +178,12 @@
         src.start();
     }
 
-    // Quieter the further a sound is from the middle of the screen (page coordinates)
+    // Quieter the further a sound is from the middle of the screen (page coordinates). Uses the
+    // scroll position from the start of the tick: debris sounds play between moves of the
+    // broken-off cards, and reading it there would make the browser lay the page out each time.
+    let viewX = window.scrollX, viewY = window.scrollY;
     function nearVolume(x, y) {
-        const cx = window.scrollX + window.innerWidth / 2, cy = window.scrollY + window.innerHeight / 2;
+        const cx = viewX + window.innerWidth / 2, cy = viewY + window.innerHeight / 2;
         return Math.max(0, 1 - Math.hypot(x - cx, y - cy) / 1600);
     }
 
@@ -721,10 +724,27 @@
         return s - Math.floor(s);
     }
 
+    const RIM_STEPS = 512;
     function radiusAt(c, angle) {
-        let r = 1;
-        for (const w of c.waves) r += w.a * Math.sin(w.k * angle + w.p);
-        return c.R * r;
+        const i = Math.round((angle + Math.PI) / (Math.PI * 2) * RIM_STEPS) % RIM_STEPS;
+        return c.rim[i];
+    }
+
+    // The crater's outline: its radius at RIM_STEPS angles around it
+    function buildRim(c) {
+        c.rim = new Float32Array(RIM_STEPS);
+        for (let i = 0; i < RIM_STEPS; i++) {
+            const angle = i / RIM_STEPS * Math.PI * 2 - Math.PI;
+            let r = 1;
+            for (const w of c.waves) r += w.a * Math.sin(w.k * angle + w.p);
+            c.rim[i] = c.R * r;
+        }
+        // Squared distances inside which a point is deep in the hole (below even the lowest rim,
+        // the torn lip and the edge jitter) and beyond which it's past the soot
+        let lo = Infinity, hi = 0;
+        for (const r of c.rim) { lo = Math.min(lo, r); hi = Math.max(hi, r); }
+        c.inner2 = Math.max(0, lo - c.R * 0.17 - DMG * 3) ** 2;
+        c.outer2 = (hi + c.soot + DMG * 3) ** 2;
     }
 
     // Signed distance-ish to the crater union: < 0 inside a hole. Also returns the nearest blob.
@@ -778,7 +798,15 @@
                 // skipping it would leave a thin strip of page to stand on
                 if ((gy + 1) * DMG <= sky) continue;
                 const inSky = py < sky;
-                const { f: raw, owner: c } = craterField(px, Math.max(py, sky), near);
+                const qy = Math.max(py, sky);
+                let raw = Infinity, c = null;
+                for (const k of near) {
+                    const dx = px - k.x, dy = qy - k.y, d2 = dx * dx + dy * dy;
+                    if (d2 > k.outer2) continue;
+                    if (d2 < k.inner2) { raw = -Infinity; c = k; break; } // deep in the hole: no rim here
+                    const f = Math.sqrt(d2) - radiusAt(k, Math.atan2(dy, dx));
+                    if (f < raw) { raw = f; c = k; }
+                }
                 if (!c) continue;
                 const f = raw + (hash(gx, gy) - 0.5) * DMG * 1.6; // ragged pixel edge
                 const p = (my * w + mx) * 4;
@@ -813,6 +841,7 @@
             waves.push({ k, a: (0.04 + Math.random() * 0.07) / (k * 0.45), p: Math.random() * Math.PI * 2 });
         }
         const c = { x, y, R, waves, soot: R * 0.25 + 6, age: 0, burn: 300 + Math.random() * 300 };
+        buildRim(c);
         // The page this blast actually removes: inside the new blob, not sky, not already a hole.
         // Debris comes only from here, so hitting the same spot again tears nothing new.
         const before = craters.slice();
@@ -876,6 +905,7 @@
     const MAX_LETTERS = 1200;
     const blocks = [];      // whole page elements (cards, images, buttons) knocked off the page
     const MAX_BLOCKS = 60;
+    const pageWidth = Math.max(html.scrollWidth, window.innerWidth);
 
     // The colour actually showing at a screen point: the nearest opaque background behind it
     function colorAt(screenX, screenY) {
@@ -911,7 +941,39 @@
     function imageSource(img) {
         if (!img.complete || !img.naturalWidth) return null;
         const ir = img.getBoundingClientRect();
-        return { el: img, x1: ir.left + window.scrollX, y1: ir.top + window.scrollY, x2: ir.right + window.scrollX, y2: ir.bottom + window.scrollY };
+        return {
+            copy: imageCopy(img, ir.width, ir.height),
+            x1: ir.left + window.scrollX, y1: ir.top + window.scrollY, x2: ir.right + window.scrollX, y2: ir.bottom + window.scrollY
+        };
+    }
+
+    // Debris shows a page image from a copy decoded in the background at the size it's shown:
+    // drawing the page's own <img> makes the browser decode the full image there and then.
+    // Pieces show their plain colour until the copy is ready.
+    const imageCopies = new WeakMap();
+    function imageCopy(img, w, h) {
+        let c = imageCopies.get(img);
+        if (!c) {
+            c = { bitmap: null };
+            imageCopies.set(img, c);
+            createImageBitmap(img, { resizeWidth: Math.max(1, Math.round(w)), resizeHeight: Math.max(1, Math.round(h)), resizeQuality: 'medium' })
+                .then(b => { c.bitmap = b; }, () => {});
+        }
+        return c;
+    }
+
+    // An image's average colour, read in the background from a 1-pixel copy of it
+    function imageColor(img, done) {
+        createImageBitmap(img, { resizeWidth: 1, resizeHeight: 1, resizeQuality: 'medium' }).then(b => {
+            try {
+                const t = document.createElement('canvas');
+                t.width = t.height = 1;
+                const tg = t.getContext('2d', { willReadFrequently: true });
+                tg.drawImage(b, 0, 0);
+                const [r, g, bl, a] = tg.getImageData(0, 0, 1, 1).data;
+                if (a > 40) done(`rgb(${r}, ${g}, ${bl})`);
+            } catch (e) { /* another site's image: can't be read */ }
+        }, () => {});
     }
 
     // One torn piece flying off at angle a. (ox, oy) is where it was on the page, which is the
@@ -990,6 +1052,10 @@
         o.x += o.vx;
         o.y += o.vy;
         o.rot += o.vr;
+        if ((o.x < 0 && o.vx < 0) || (o.x > pageWidth && o.vx > 0)) {
+            o.x = o.x < 0 ? 0 : pageWidth;
+            o.vx = -o.vx * 0.4;
+        }
         if (o.heavy) hitWalls(o);
         if (o.vy < 0) return;
         const b = shapeBounds(o);
@@ -1098,6 +1164,117 @@
         }
     }
 
+    // ---- Shockwave: a pressure front racing out from (x, y). Everything loose it reaches is
+    // hurled away from the centre, the nearer the harder. Debris that comes loose behind the
+    // front (letters dropping a tick later) is caught too, for as long as the wave lasts.
+    const shockwaves = [];
+
+    function startShockwave(x, y, reach, force, speed = 36) {
+        shockwaves.push({ x, y, reach, force, speed, front: 0, hit: new Set() });
+    }
+
+    function updateShockwaves() {
+        for (let i = shockwaves.length - 1; i >= 0; i--) {
+            const w = shockwaves[i];
+            w.front += w.speed;
+            for (const list of [shards, letters, blocks]) {
+                for (const o of list) {
+                    if (w.hit.has(o)) continue;
+                    const dx = o.x - w.x, dy = o.y - w.y;
+                    const d = Math.hypot(dx, dy);
+                    if (d > w.front || d > w.reach) continue;
+                    w.hit.add(o);
+                    settle(o, false);
+                    const mass = Math.sqrt(o.heavy || 1);
+                    const k = w.force * (0.35 + 0.65 * (1 - d / w.reach)) / mass;
+                    const ux = d > 1 ? dx / d : Math.random() - 0.5, uy = d > 1 ? dy / d : -1;
+                    o.vx += ux * k;
+                    o.vy += uy * k - k * 0.25;
+                    o.vr += (Math.random() - 0.5) * k * 0.05 / mass;
+                }
+            }
+            if (w.front >= w.reach) shockwaves.splice(i, 1);
+        }
+    }
+
+    // Shinra Tensei repels everything around it, not just what its crater removes: cards nearby
+    // break off whole, and the text around the crater is torn off letter by letter, each piece
+    // released as the front reaches it.
+
+    // Cards: the outermost card under each point of a grid over the circle. Returns true if any
+    // came off (the ledges changed).
+    function tearCards(cx, cy, reach) {
+        const seen = new Set();
+        const picked = [], gone = [];
+        const step = 80;
+        for (let gy = cy - reach; gy <= cy + reach && picked.length < 10; gy += step) {
+            for (let gx = cx - reach; gx <= cx + reach && picked.length < 10; gx += step) {
+                if (Math.hypot(gx - cx, gy - cy) > reach || gy < pageTop) continue;
+                const sx = gx - window.scrollX, sy = gy - window.scrollY;
+                if (sx < 0 || sy < 0 || sx >= window.innerWidth || sy >= window.innerHeight) continue;
+                for (const top of document.elementsFromPoint(sx, sy)) {
+                    if (top === canvas || top === bgCanvas || top === html || top === body) continue;
+                    if (seen.has(top) || top.closest(`[${LOOSE}]`)) continue;
+                    let card = null;
+                    for (let el = top; el && el !== body; el = el.parentElement) {
+                        if (seen.has(el)) break;
+                        seen.add(el);
+                        const r = el.getBoundingClientRect();
+                        if (isCard(el, r)) card = { el, r };
+                    }
+                    if (!card || picked.some(p => p.el.contains(card.el) || card.el.contains(p.el))) continue;
+                    if (card.el.querySelector(`[${LOOSE}]`)) continue;
+                    const { r } = card;
+                    const mx = r.left + r.width / 2 + window.scrollX, my = r.top + r.height / 2 + window.scrollY;
+                    if (Math.hypot(mx - cx, my - cy) > reach) continue;
+                    if (damageShare(r) > 0.9) gone.push(card.el); // nothing left of it
+                    else picked.push(card);
+                }
+            }
+        }
+        detachCards(picked, cx, cy);
+        for (const el of gone) el.style.visibility = 'hidden';
+        return picked.length > 0;
+    }
+
+    // Letters: the nearest ones still on the page
+    function tearLetters(cx, cy, letterReach, maxLetters) {
+        const range = document.createRange();
+        const found = [];
+        for (const t of textBoxes) {
+            if (t.x2 < cx - letterReach || t.x1 > cx + letterReach || t.y2 < cy - letterReach || t.y1 > cy + letterReach) continue;
+            const node = t.node;
+            if (!node.isConnected || node.parentNode.wdLetter || node.parentElement.closest(`[${LOOSE}]`)) continue;
+            const text = node.data;
+            for (let i = 0; i < text.length; i++) {
+                if (/\s/.test(text[i])) continue;
+                range.setStart(node, i);
+                range.setEnd(node, i + 1);
+                const r = range.getBoundingClientRect();
+                if (!r.width) continue;
+                const px = r.left + r.width / 2 + window.scrollX;
+                const py = r.top + r.height / 2 + window.scrollY;
+                const d = Math.hypot(px - cx, py - cy);
+                if (d > letterReach || py < pageTop || inHole(px, py)) continue;
+                found.push({ node, i, d });
+            }
+        }
+        found.sort((a, b) => a.d - b.d);
+        const picks = found.slice(0, maxLetters);
+        // Split from the highest index down so earlier indices in the same node stay valid
+        picks.sort((a, b) => a.node === b.node ? b.i - a.i : 0);
+        for (const { node, i, d } of picks) {
+            if (!node.isConnected || i >= node.data.length) continue;
+            const ch = node.splitText(i);
+            ch.splitText(1);
+            const span = document.createElement('span');
+            span.wdLetter = true;
+            ch.replaceWith(span);
+            span.appendChild(ch);
+            letterQueue.push({ span, delay: Math.floor(d / 36), from: { x: cx, y: cy } });
+        }
+    }
+
     // Wrap individual characters in hidden-able spans and queue them to fall. Letters the blast
     // destroyed (inside the new hole, not in an older one) all fly out; a few right at the new
     // rim shake loose. Letters already under a hole were destroyed before and stay gone.
@@ -1135,6 +1312,7 @@
             const ch = node.splitText(i);
             ch.splitText(1);
             const span = document.createElement('span');
+            span.wdLetter = true;
             ch.replaceWith(span);
             span.appendChild(ch);
             // Blasted letters leave with the blast, outward; rim letters drop a little later
@@ -1238,7 +1416,7 @@
     function breakOffCards(cx, cy, fresh) {
         if (!fresh.length) return false;
         const seen = new Set();
-        const picked = [];
+        const picked = [], gone = [];
         const stride = Math.max(1, Math.floor(fresh.length / 40));
         for (let k = 0; k < fresh.length && picked.length < 4; k += stride) {
             const sx = fresh[k][0] - window.scrollX, sy = fresh[k][1] - window.scrollY;
@@ -1261,28 +1439,42 @@
                     if (picked.some(p => p.el.contains(el) || el.contains(p.el)) || el.querySelector(`[${LOOSE}]`)) break;
                     const share = damageShare(r);
                     if (share < 0.05) continue; // barely scratched: maybe a smaller card inside took the hit
-                    if (share > 0.9) el.style.visibility = 'hidden'; // blown away entirely
+                    if (share > 0.9) gone.push(el); // blown away entirely
                     else picked.push({ el, r });
                     break;
                 }
             }
         }
-        for (const { el, r } of picked) detachCard(el, r, cx, cy);
+        detachCards(picked, cx, cy);
+        for (const el of gone) el.style.visibility = 'hidden';
         return picked.length > 0;
     }
 
     // Cut the holes the card already has out of it, so the bite travels with it. Returns the
-    // mask canvas (opaque = card still there), kept so later blasts can bite into it.
+    // mask canvas (opaque = card still there), kept so later blasts can bite into it. The holes
+    // are worked out from the craters the same way paintDamage does it: reading them back from
+    // the hole map stalls while the browser fetches that whole canvas off the GPU.
     function maskOutHoles(el, r) {
-        const x0 = (r.left + window.scrollX) / DMG, y0 = (r.top + window.scrollY) / DMG;
+        const left = r.left + window.scrollX, top = r.top + window.scrollY;
         const mw = Math.max(1, Math.ceil(r.width / DMG)), mh = Math.max(1, Math.ceil(r.height / DMG));
+        const near = craters.filter(c => c.x + c.R * 1.5 > left && c.x - c.R * 1.5 < left + r.width &&
+                                         c.y + c.R * 1.5 > top && c.y - c.R * 1.5 < top + r.height);
+        const img = new ImageData(mw, mh);
+        for (let my = 0; my < mh; my++) {
+            const gy = Math.floor((top + (my + 0.5) * r.height / mh) / DMG);
+            const open = (gy + 1) * DMG > pageTop; // the sky never has page to cut
+            const py = Math.max((gy + 0.5) * DMG, pageTop);
+            for (let mx = 0; mx < mw; mx++) {
+                const gx = Math.floor((left + (mx + 0.5) * r.width / mw) / DMG);
+                const hole = open && near.length &&
+                    craterField((gx + 0.5) * DMG, py, near).f + (hash(gx, gy) - 0.5) * DMG * 1.6 < 0;
+                if (!hole) img.data[(my * mw + mx) * 4 + 3] = 255;
+            }
+        }
         const m = document.createElement('canvas');
         m.width = mw; m.height = mh;
-        const g = m.getContext('2d');
-        g.fillStyle = '#000';
-        g.fillRect(0, 0, mw, mh);
-        g.globalCompositeOperation = 'destination-out';
-        g.drawImage(holeMap, x0, y0, r.width / DMG, r.height / DMG, 0, 0, mw, mh);
+        // Kept in memory, not on the GPU: turning a GPU canvas into an image waits on the GPU
+        m.getContext('2d', { willReadFrequently: true }).putImageData(img, 0, 0);
         applyMask(el, m);
         return m;
     }
@@ -1296,21 +1488,13 @@
         }
     }
 
-    // The colour a card's torn pieces get: its own background, else its image's average colour
-    function cardColor(el) {
+    // The colour a card's torn pieces get: its own background, else grey until its image's
+    // average colour has been read (in the background, see imageColor)
+    function cardColor(el, block) {
         const bg = getComputedStyle(el).backgroundColor;
         if (isOpaque(bg)) return bg;
         const img = el.tagName === 'IMG' ? el : el.querySelector('img');
-        if (img && img.complete && img.naturalWidth) {
-            try {
-                const t = document.createElement('canvas');
-                t.width = t.height = 1;
-                const tg = t.getContext('2d');
-                tg.drawImage(img, 0, 0, 1, 1);
-                const [r, g, b, a] = tg.getImageData(0, 0, 1, 1).data;
-                if (a > 40) return `rgb(${r}, ${g}, ${b})`;
-            } catch (e) { /* another site's image: can't be read */ }
-        }
+        if (img && img.complete && img.naturalWidth) imageColor(img, c => { block.color = c; });
         return '#8a8f99';
     }
 
@@ -1370,7 +1554,15 @@
         }
     }
 
-    function detachCard(el, r, cx, cy) {
+    // Every card's styles are read before the page is changed at all: reading styles after a
+    // change makes the browser restyle the whole page, once per card
+    function detachCards(picked, cx, cy) {
+        const lifted = picked.map(({ el, r }) => liftCard(el, r));
+        for (const card of lifted) dropCard(card, cx, cy);
+    }
+
+    // The frozen copy of a card, not yet on the page
+    function liftCard(el, r) {
         const copy = el.cloneNode(true);
         freezeStyles(el, copy, true);
         copy.removeAttribute('id');
@@ -1389,7 +1581,16 @@
         if (getComputedStyle(el).display === 'inline') set('display', 'inline-block');
         set('transform-origin', '50% 50%');
         set('will-change', 'transform');
-        const mask = maskOutHoles(copy, r);
+        const block = {}; // filled in by dropCard; the colour may arrive before or after
+        block.color = cardColor(el, block);
+        return {
+            el, copy, r, left, top, base, block, mask: maskOutHoles(copy, r),
+            image: el.tagName === 'IMG' ? imageSource(el) : null
+        };
+    }
+
+    // Swap the card for its copy and send the copy flying away from (cx, cy)
+    function dropCard({ el, copy, r, left, top, base, block, mask, image }, cx, cy) {
         debrisLayer.appendChild(copy);
         el.setAttribute(LOOSE, '');
         el.style.setProperty('visibility', 'hidden', 'important');
@@ -1398,16 +1599,15 @@
         const a = Math.atan2(y - cy, x - cx);
         const heavy = 1 + (r.width * r.height) / 6000;
         const hw = r.width / 2, hh = r.height / 2;
-        blocks.push({
+        blocks.push(Object.assign(block, {
             el: copy, base: base === 'none' ? '' : ' ' + base,
-            x, y, ox: x, oy: y, heavy, w: r.width, h: r.height, mask,
-            color: cardColor(el), image: el.tagName === 'IMG' ? imageSource(el) : null,
+            x, y, ox: x, oy: y, heavy, w: r.width, h: r.height, mask, image,
             pts: [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]],
             vx: Math.cos(a) * (2 + Math.random() * 3) / Math.sqrt(heavy),
             vy: Math.sin(a) * 2 - 3 - Math.random() * 2,
             rot: 0, vr: (Math.random() - 0.5) * 0.12 / Math.sqrt(heavy),
             resting: false, shown: ''
-        });
+        }));
         if (blocks.length > MAX_BLOCKS) {
             for (const old of blocks.splice(0, blocks.length - MAX_BLOCKS)) old.el.remove();
         }
@@ -1989,8 +2189,9 @@
         after(40, endCast);
     }
 
-    // [6] Shinra Tensei: a shockwave bursts out from Sasuke himself, tearing a crater around him
-    // and hurling every piece of rubble nearby away. Not aimed: the cursor only sets his facing.
+    // [6] Shinra Tensei: a shockwave bursts out from Sasuke himself. It tears a crater around
+    // him, rips the cards and text nearby off the page, and hurls everything loose in its reach
+    // violently away. Not aimed: the cursor only sets his facing.
     function castShinraTensei(tx, ty) {
         faceTarget(tx);
         startCast('st_body');
@@ -2004,8 +2205,11 @@
             playSound('shinra_blast', { volume: 0.9 });
             playSound('chibaku_boom', { volume: 0.5 });
             spawnEffect('st_wave', cx, cy, { centered: true, scale: 1, growTo: 1.8, growTime: 30 });
-            disturbDebris(cx, cy, 700, 22);
             createExplosion(cx, cy, { radius: 300, colors: ['#eceff1', '#b0bec5', '#ffffff'] });
+            startShockwave(cx, cy, 750, 21);
+            // The rest is torn loose over the next ticks, while the wave is still close
+            after(2, () => { if (tearCards(cx, cy, 420)) scanPage(); });
+            after(3, () => tearLetters(cx, cy, 360, 500));
         });
         after(60, endCast);
     }
@@ -2237,10 +2441,13 @@
         generated.tear(nearVolume(x, y));
         disturbDebris(x, y, radius * 1.4, 9);
         const blast = addCrater(x, y, holeR);
-        spawnShards(x, y, holeR, blast.fresh);
-        loosenLetters(blast);
-        damageBlocks(blast.c);
-        if (breakOffCards(x, y, blast.fresh)) scanPage(); // their ledges go with them
+        // What it tore out comes loose a tick later, so a big blast's work is spread over frames
+        after(1, () => {
+            spawnShards(x, y, holeR, blast.fresh);
+            loosenLetters(blast);
+            damageBlocks(blast.c);
+            if (breakOffCards(x, y, blast.fresh)) scanPage(); // their ledges go with them
+        });
         for (let i = 0; i < 8 + holeR / 10; i++) {
             const a = Math.random() * Math.PI * 2;
             const d = holeR * (0.8 + Math.random() * 0.7);
@@ -2265,8 +2472,12 @@
     // ==========================================
     // 12. CORE ENGINE UPDATE & RENDER LOOP
     // ==========================================
+    // Measured once per tick: reading the page's height makes the browser lay the page out, and
+    // debris moving between reads would make it do that again for every piece
+    let docBottomNow = null;
     function docBottom() {
-        return Math.max(html.scrollHeight, body.scrollHeight) - 4;
+        if (docBottomNow === null) docBottomNow = Math.max(html.scrollHeight, body.scrollHeight) - 4;
+        return docBottomNow;
     }
 
     // Highest ledge crossed by a body spanning x1..x2 this tick (one-way: only when falling
@@ -2386,6 +2597,7 @@
     }
 
     function updateDebris() {
+        updateShockwaves();
         // Letters drop one at a time
         for (let i = letterQueue.length - 1; i >= 0; i--) {
             if (--letterQueue[i].delay <= 0) {
@@ -2415,7 +2627,7 @@
         }
 
         // Craters near the screen keep burning, then smoulder
-        const viewTop = window.scrollY - 300;
+        const viewTop = viewBottom - window.innerHeight - 500; // scrollY - 300, without a layout
         for (const c of craters) {
             c.age++;
             if (c.y < viewTop || c.y > viewBottom + 100 || flames.length > 1800) continue;
@@ -2483,7 +2695,7 @@
             ctx.save();
             ctx.clip();
             const im = s.image;
-            ctx.drawImage(im.el, im.x1 - s.ox, im.y1 - s.oy, im.x2 - im.x1, im.y2 - im.y1);
+            if (im.copy.bitmap) ctx.drawImage(im.copy.bitmap, im.x1 - s.ox, im.y1 - s.oy, im.x2 - im.x1, im.y2 - im.y1);
             ctx.restore();
         } else if (s.lines) {
             ctx.save();
@@ -2545,6 +2757,9 @@
 
     // One game tick. MUGEN timing assumes 60 ticks per second.
     function tick() {
+        docBottomNow = null;
+        viewX = window.scrollX;
+        viewY = window.scrollY;
         // Scheduled jutsu steps
         for (let i = timers.length - 1; i >= 0; i--) {
             if (--timers[i].ticks <= 0) {
@@ -2677,9 +2892,13 @@
     function frame(now) {
         pending += Math.min(now - lastTime, 250); // don't fast-forward after a hidden tab
         lastTime = now;
+        const start = performance.now();
         while (pending >= TICK_MS) {
             tick();
             pending -= TICK_MS;
+            // After a heavy tick (a big blast's work) the rest catch up next frame, so work
+            // spread over ticks isn't run back to back in one frame
+            if (performance.now() - start > 25) break;
         }
         render();
         requestAnimationFrame(frame);
