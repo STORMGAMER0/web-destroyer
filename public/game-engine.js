@@ -100,11 +100,12 @@
     // character files: sprites keep their real axis (feet / center point) and
     // anims keep MUGEN frame timing (ticks at 60 per second).
     // Which character to play: ?char=sasuke on the page URL (Naruto when missing or unknown)
-    const CHARACTERS = ['naruto', 'sasuke', 'goku'];
+    const CHARACTERS = ['naruto', 'sasuke', 'goku', 'luffy'];
     // Characters with transformations: form names in the order the transform key cycles them
     const FORMS = {
         goku: ['Base', 'Super Saiyan', 'Super Saiyan 2', 'Super Saiyan 3', 'Super Saiyan God',
-               'Super Saiyan Blue', 'Blue Kaioken', 'Ultra Instinct Sign', 'Mastered Ultra Instinct']
+               'Super Saiyan Blue', 'Blue Kaioken', 'Ultra Instinct Sign', 'Mastered Ultra Instinct'],
+        luffy: ['Base', 'Gear 4 Boundman', 'Gear 4 Snakeman', 'Gear 5']
     };
     const requested = (new URLSearchParams(location.search).get('char') || '').toLowerCase();
     const CHAR_ID = CHARACTERS.includes(requested) ? requested : 'naruto';
@@ -308,7 +309,7 @@
 
         ctx.save();
         ctx.globalAlpha = alpha;
-        if (anim.blend === 'add') ctx.globalCompositeOperation = 'lighter';
+        if (anim.blend === 'add' || frame.a) ctx.globalCompositeOperation = 'lighter';
         ctx.translate(x + frame.x * facing * scale, y + frame.y * scale);
         if (rotation) ctx.rotate(rotation);
         ctx.scale((flipH ? -scale : scale) * stretchX, flipV ? -scale : scale);
@@ -1804,6 +1805,31 @@
             { name: 'Chidori', cast: castChidori }
         ]
     };
+    ROSTER.luffy = [
+        { name: 'Red Hawk', cast: castRedHawk, forms: [0] },
+        { name: 'Hawk Gatling', cast: castHawkGatling, forms: [0] },
+        { name: 'Red Rock', cast: castRedRock, forms: [0] },
+        { name: 'Gear Third Smash', cast: castGearThirdSmash, forms: [0] },
+        { name: 'Eagle Bazooka', cast: castEagleBazooka, forms: [0] },
+        { name: 'Kong Gun', cast: castKongGun, forms: [1] },
+        { name: 'King Kong Gun', cast: castKingKongGun, forms: [1] },
+        { name: 'Leo Bazooka', cast: castLeoBazooka, forms: [1] },
+        { name: 'Rhino Schneider', cast: castRhinoSchneider, forms: [1] },
+        { name: 'Culverin', cast: castCulverin, forms: [1] },
+        { name: 'Kong Organ', cast: castKongOrgan, forms: [1] },
+        { name: 'Jet Culverin', cast: castJetCulverin, forms: [2] },
+        { name: 'Jet Python', cast: castJetPython, forms: [2] },
+        { name: 'Jet Culverin Gatling', cast: castJetCulverinGatling, forms: [2] },
+        { name: 'Black Mamba', cast: castBlackMamba, forms: [2] },
+        { name: 'King Cobra', cast: castKingCobra, forms: [2] },
+        { name: 'Rubber Ray', cast: castRubberRay, forms: [3] },
+        { name: 'Gigant Stomp', cast: castGigantStomp, forms: [3] },
+        { name: 'Rolling the World', cast: castRollingTheWorld, forms: [3] },
+        { name: 'Giant Assault', cast: castGiantAssault, forms: [3] },
+        { name: 'Giant Hand', cast: castGiantHand, forms: [3] },
+        { name: 'Giant Head', cast: castGiantHead, forms: [3] },
+        { name: 'Bajrang Gun', cast: castBajrangGun, forms: [3] }
+    ];
     ROSTER.goku = [
         { name: 'Kamehameha', cast: castKamehameha },
         { name: 'Instant Kamehameha', cast: castInstantKamehameha },
@@ -2479,6 +2505,838 @@
         after(58, endCast);
     }
 
+    // ---------------- Luffy ----------------
+
+    // Rubber limbs: Luffy's fist flies out along a path and his arm stretches behind it, back
+    // to his shoulder. The arm is drawn as a band in each form's colours; the fist is a sprite
+    // from his moves, its far end on the tip of the path.
+    const arms = [];
+    const ARM_LOOK = [
+        { fill: '#eaa271', edge: '#4a1f12', w: 4 },  // Base
+        { fill: '#3b1117', edge: '#c3193f', w: 7 },  // Gear 4 Boundman: haki-black, red trim
+        { fill: '#3b1117', edge: '#c3193f', w: 5 },  // Gear 4 Snakeman
+        { fill: '#eaa271', edge: '#f4f4ff', w: 5 }   // Gear 5
+    ];
+    const SHOULDER = [42, 62, 48, 40]; // shoulder height above the feet, per form
+
+    function shoulder() {
+        return [player.x + 8 * player.direction, player.y - SHOULDER[player.form]];
+    }
+
+    // Stretch an arm along `path` (page points; it starts at his shoulder). Options: tip (fist
+    // anim), look (colours, default the current form's), width, speed (px per tick), hold
+    // (ticks at full stretch), onStep(x, y) each tick out, onHit(x, y) at full stretch.
+    function stretchArm(path, { tip = 'arm_base', look = null, width = null, tipScale = 1, speed = 40, hold = 8, onStep = null, onHit = null } = {}) {
+        const arm = {
+            path, tip: createAnim(tip), tipScale, look: look || ARM_LOOK[player.form], speed, hold, onStep, onHit,
+            len: 0, phase: 'out'
+        };
+        arm.width = width || arm.look.w;
+        arms.push(arm);
+        return arm;
+    }
+
+    // How many ticks an arm takes out and back over `dist`
+    function armTicks(dist, speed, hold) {
+        return Math.ceil(dist / speed) + hold + Math.ceil(dist / (speed * 1.5));
+    }
+
+    // The arm's points from his shoulder out to its current length, and the heading at the tip
+    function armLine(arm) {
+        const pts = [shoulder(), ...arm.path];
+        const line = [pts[0]];
+        let left = arm.len, heading = 0, total = 0;
+        for (let i = 1; i < pts.length; i++) {
+            const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+            const d = Math.hypot(x1 - x0, y1 - y0) || 1;
+            total += d;
+            if (left <= 0) continue;
+            heading = Math.atan2(y1 - y0, x1 - x0);
+            const t = Math.min(1, left / d);
+            line.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]);
+            left -= d;
+        }
+        return { line, heading, total };
+    }
+
+    function updateArms() {
+        for (let i = arms.length - 1; i >= 0; i--) {
+            const a = arms[i];
+            stepAnim(a.tip);
+            const { line, total } = armLine(a);
+            if (a.phase === 'out') {
+                a.len = Math.min(total, a.len + a.speed);
+                const [x, y] = armLine(a).line.at(-1);
+                if (a.onStep) a.onStep(x, y);
+                if (a.len >= total) {
+                    a.phase = 'hold';
+                    if (a.onHit) a.onHit(x, y);
+                }
+            } else if (a.phase === 'hold') {
+                if (--a.hold <= 0) a.phase = 'back';
+            } else {
+                a.len -= a.speed * 1.5;
+                if (a.len <= 0) arms.splice(i, 1);
+            }
+            if (!line.length) arms.splice(i, 1);
+        }
+    }
+
+    function drawArms() {
+        for (const a of arms) {
+            const { line, heading } = armLine(a);
+            if (line.length < 2) continue;
+            ctx.save();
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            line.forEach(([x, y], k) => k ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+            ctx.strokeStyle = a.look.edge;
+            ctx.lineWidth = a.width + 3;
+            ctx.stroke();
+            ctx.strokeStyle = a.look.fill;
+            ctx.lineWidth = a.width;
+            ctx.stroke();
+            ctx.restore();
+            // The fist: its sprite's far end on the tip, pointing along the arm
+            const frame = charData.anims[a.tip.name].frames[a.tip.index];
+            const spr = charData.sprites[frame.s];
+            const reach = (spr.w - spr.ax) * a.tipScale;
+            const [tx, ty] = line.at(-1);
+            drawAnim(a.tip, tx - Math.cos(heading) * reach, ty - Math.sin(heading) * reach, 1, a.tipScale, 1, false, heading);
+        }
+    }
+
+    // A path that zigzags out to the target in square turns, like Culverin and Jet Python
+    // winding around before they land; `turns` corners, at most `swing` px off the line
+    function zigzagPath(tx, ty, turns, swing) {
+        const [sx, sy] = shoulder();
+        const pts = [];
+        let x = sx, y = sy;
+        for (let k = 1; k <= turns; k++) {
+            const t = k / (turns + 1);
+            const nx = sx + (tx - sx) * t;
+            pts.push([nx, y]);
+            y = sy + (ty - sy) * t + (k % 2 ? -1 : 1) * swing * (0.5 + Math.random() * 0.5);
+            pts.push([nx, y]);
+            x = nx;
+        }
+        pts.push([tx, y], [tx, ty]);
+        return pts;
+    }
+
+    // A path that snakes out to the target in loose diagonal bends (Snakeman's punches)
+    function snakePath(tx, ty, bends, swing) {
+        const [sx, sy] = shoulder();
+        const pts = [];
+        for (let k = 1; k <= bends; k++) {
+            const t = k / (bends + 1);
+            const off = (k % 2 ? 1 : -1) * swing * (0.6 + Math.random() * 0.4);
+            const d = Math.hypot(tx - sx, ty - sy) || 1;
+            pts.push([sx + (tx - sx) * t - (ty - sy) / d * off, sy + (ty - sy) * t + (tx - sx) / d * off]);
+        }
+        pts.push([tx, ty]);
+        return pts;
+    }
+
+    // A flurry of quick punches around (tx, ty): an arm every `every` ticks for `ticks`, each
+    // landing at a random spot within `spread` and blasting a small hole there
+    function armBarrage(tx, ty, { ticks, every = 3, spread = 90, tip, look = null, width = null, radius = 55, colors, fx = null, fxScale = 1, curve = 0, sound = 'barrage' }) {
+        for (let t = 0; t < ticks; t += every) {
+            after(t, () => {
+                const px = tx + (Math.random() - 0.5) * spread * 2, py = ty + (Math.random() - 0.5) * spread * 1.4;
+                const path = curve ? snakePath(px, py, 1, curve) : [[px, py]];
+                stretchArm(path, {
+                    tip, look, width, speed: 70, hold: 2,
+                    onHit: (x, y) => {
+                        playSound(sound, { volume: 0.5 * Math.max(0.3, nearVolume(x, y)), minGap: 0.04 });
+                        if (fx) spawnEffect(fx, x, y, { centered: true, scale: fxScale * (0.8 + Math.random() * 0.4), rotation: Math.random() * Math.PI * 2 });
+                        createExplosion(x, y, { radius, colors, smoke: 0.12 });
+                    }
+                });
+            });
+        }
+    }
+
+    // A giant limb slams down from high above onto (tx, ty); its sprite's axis is the striking
+    // end. onLand runs when it hits.
+    function skySlam(anim, tx, ty, { scale = 1, fall = 14, hold = 30, onLand }) {
+        const top = ty - 800;
+        const fx = spawnEffect(anim, tx, top, { scale, life: fall + hold + 14, fade: 14, facing: player.direction });
+        for (let k = 1; k <= fall; k++) {
+            after(k, () => { fx.y = top + (ty - top) * (k / fall) ** 2; });
+        }
+        after(fall, onLand);
+        return fx;
+    }
+
+    // The end of a cast that runs `ticks` from now
+    function finishAt(ticks, anim = null) {
+        if (anim) after(Math.max(1, ticks - 12), () => setPlayerAnim(anim));
+        after(ticks, endCast);
+    }
+
+    const FIRE = ['#ffcc80', '#ff7043', '#ffab00', '#ffffff'];
+    const HAKI = ['#3b1117', '#c3193f', '#ff8a80', '#ffffff'];
+    const NIKA = ['#ffffff', '#fff59d', '#e1f5fe'];
+
+    function luffyHand() {
+        return [player.x + 30 * player.direction, player.y - SHOULDER[player.form] + 4];
+    }
+
+    // ---- Base
+
+    // [1] Red Hawk: a flaming fist flies out to the cursor and bursts into fire
+    function castRedHawk(tx, ty) {
+        faceTarget(tx);
+        startCast('rh_charge');
+        playSound('voice_rh');
+        playSound('charge_small', { volume: 0.5 });
+        spawnEffect('charge', player.x, player.y - 30, { centered: true, life: 25 });
+        after(30, () => spawnEffect('fire', ...luffyHand(), { centered: true, scale: 0.6 }));
+        const [sx, sy] = shoulder();
+        const travel = armTicks(Math.hypot(tx - sx, ty - sy), 40, 10);
+        after(40, () => {
+            setPlayerAnim('rh_punch');
+            playSound('stretch');
+            playSound('whoosh', { volume: 0.6 });
+            stretchArm([[tx, ty]], {
+                tip: 'arm_fire', speed: 40, hold: 10,
+                onStep: (x, y) => { if (Math.random() < 0.5) spawnEffect('fire', x, y, { centered: true, scale: 0.5 }); },
+                onHit: (x, y) => {
+                    const v = Math.max(0.4, nearVolume(x, y));
+                    playSound('voice_rh_hit');
+                    playSound('fire_hit', { volume: v });
+                    playSound('hit', { volume: v });
+                    spawnEffect('fire_burst', x, y, { centered: true, scale: 1.4 });
+                    spawnEffect('fire_ring', x, y, { centered: true, scale: 1.2 });
+                    spawnEffect('fire_smoke', x, y + 20, { scale: 1.2 });
+                    createExplosion(x, y, { radius: 190, colors: FIRE });
+                }
+            });
+        });
+        finishAt(40 + travel + 6);
+    }
+
+    // [2] Hawk Gatling: a storm of flaming punches pounds the area around the cursor
+    function castHawkGatling(tx, ty) {
+        faceTarget(tx);
+        startCast('hg_charge');
+        playSound('voice_hg');
+        playSound('charge_small', { volume: 0.5 });
+        spawnEffect('charge', player.x, player.y - 30, { centered: true, life: 25 });
+        after(30, () => {
+            setPlayerAnim('hg_loop');
+            playSound('voice_hg_go');
+            playSound('barrage_start');
+            armBarrage(tx, ty, { ticks: 90, every: 3, spread: 80, tip: 'arm_fire', radius: 55, colors: FIRE, fx: 'fire', fxScale: 0.8 });
+        });
+        finishAt(140, 'hg_end');
+    }
+
+    // [3] Red Rock: he winds up a burning haki arm and hurls a fist of fire at the cursor
+    function castRedRock(tx, ty) {
+        faceTarget(tx);
+        startCast('rr_wind');
+        playSound('voice_rr');
+        playSound('charge_big', { volume: 0.5 });
+        spawnEffect('charge_red', player.x, player.y - 35, { centered: true, life: 30 });
+        after(30, () => playSound('rr_spin', { volume: 0.7 }));
+        after(79, () => {
+            setPlayerAnim('rr_swing');
+            playSound('rr_fire', { volume: 0.8 });
+            const [hx, hy] = luffyHand();
+            launch(hx, hy, tx, ty, 13, [{ name: 'rr_fist', scale: 1.2, aim: 0 }], (x, y) => {
+                const v = Math.max(0.4, nearVolume(x, y));
+                playSound('rr_boom', { volume: v });
+                playSound('boom', { volume: v });
+                spawnEffect('rr_burst', x, y, { centered: true, scale: 1.5 });
+                spawnEffect('rr_spiral', x, y, { centered: true, scale: 1.4 });
+                spawnEffect('fire_burst', x, y, { centered: true, scale: 1.8 });
+                createExplosion(x, y, { radius: 300, colors: FIRE });
+                startShockwave(x, y, 420, 10);
+            });
+        });
+        finishAt(130);
+    }
+
+    // [4] Gear Third Smash: he blows himself up like a balloon and drops onto the cursor
+    function castGearThirdSmash(tx, ty) {
+        faceTarget(tx);
+        startCast('g3_up');
+        playSound('voice_g3');
+        playSound('charge_small', { volume: 0.5 });
+        spawnEffect('g3_ring', player.x, player.y - 25, { centered: true });
+        after(30, () => {
+            setPlayerAnim('g3_fall');
+            playSound('jump', { volume: 0.7 });
+            dashAt(tx, ty, 800, () => {}, () => {
+                const x = player.x, y = player.y;
+                const v = Math.max(0.4, nearVolume(x, y));
+                playSound('thud', { volume: v });
+                playSound('voice_g3_hit');
+                playSound('boom', { volume: v });
+                player.floatTicks = 30;
+                spawnEffect('g3_ring', x, y - 30, { centered: true, scale: 2 });
+                spawnEffect('dust_burst', x, y + 10, { scale: 1.6 });
+                spawnEffect('cracks', x, y, { scale: 1.4 });
+                createExplosion(x, y - 30, { radius: 280, colors: ['#ffccbc', '#ff8a65', '#ffffff'] });
+                startShockwave(x, y - 30, 420, 11);
+                finishAt(45);
+            });
+        });
+    }
+
+    // [5] Eagle Bazooka: giant haki palms swell up and he rams them into the cursor
+    function castEagleBazooka(tx, ty) {
+        faceTarget(tx);
+        startCast('eb_charge');
+        playSound('voice_eb');
+        playSound('charge_small', { volume: 0.5 });
+        after(55, () => {
+            setPlayerAnim('eb_rush');
+            playSound('voice_eb_go');
+            playSound('dash', { volume: 0.8 });
+            dashAt(tx, ty, 650, () => disturbDebris(player.x, player.y - 40, 120, 8), () => {
+                const x = player.x + 60 * player.direction, y = player.y - 35;
+                const v = Math.max(0.4, nearVolume(x, y));
+                playSound('eb_hit', { volume: v });
+                playSound('hit', { volume: v });
+                player.floatTicks = 30;
+                spawnEffect('shockwave', x, y, { centered: true, scale: 2 });
+                spawnEffect('smoke', x, y, { centered: true, scale: 1.5 });
+                spawnEffect('rocks', x, y + 20, { scale: 1.4 });
+                createExplosion(x, y, { radius: 270, colors: HAKI });
+                startShockwave(x, y, 400, 12);
+                finishAt(40);
+            });
+        });
+    }
+
+    // ---- Gear 4 Boundman
+
+    // [1] Kong Gun: his fist, compressed into his arm, springs out at the cursor
+    function castKongGun(tx, ty) {
+        faceTarget(tx);
+        startCast('kg_charge');
+        playSound('g4_puff');
+        playSound('charge_small', { volume: 0.5 });
+        spawnEffect('steam', player.x, player.y, { follow: true });
+        const [sx, sy] = shoulder();
+        const travel = armTicks(Math.hypot(tx - sx, ty - sy), 55, 12);
+        after(31, () => {
+            setPlayerAnim('kg_punch');
+            playSound('g4_compress');
+            playSound('g4_fire', { volume: 0.7 });
+            stretchArm([[tx, ty]], {
+                tip: 'arm_g4', speed: 55, hold: 12,
+                onHit: (x, y) => {
+                    const v = Math.max(0.4, nearVolume(x, y));
+                    playSound('g4_hit', { volume: v });
+                    playSound('hit', { volume: v });
+                    spawnEffect('impact', x, y, { centered: true, scale: 1.8, facing: player.direction });
+                    spawnEffect('shock', x, y, { centered: true, scale: 1.4 });
+                    spawnEffect('burst', x, y, { centered: true, scale: 1.4, facing: player.direction });
+                    createExplosion(x, y, { radius: 240, colors: HAKI });
+                }
+            });
+        });
+        finishAt(31 + travel + 8);
+    }
+
+    // [2] King Kong Gun: he pumps his fist up into a colossal one and drives it down from the
+    // sky onto the cursor
+    function castKingKongGun(tx, ty) {
+        faceTarget(tx);
+        startCast('kkg_body');
+        playSound('kkg_voice');
+        playSound('charge_big', { volume: 0.6 });
+        spawnEffect('charge_red', player.x, player.y - 40, { centered: true, life: 30 });
+        spawnEffect('steam', player.x, player.y, { follow: true });
+        after(31, () => playSound('kkg_grow', { volume: 0.8 }));
+        // The fist comes down as his arm swings down at the end of kkg_body
+        after(200, () => {
+            playSound('kkg_fall', { volume: 0.8 });
+            skySlam('kkg_fist', tx, ty, {
+                scale: 1.1, fall: 14, hold: 35,
+                onLand: () => {
+                    const v = Math.max(0.5, nearVolume(tx, ty));
+                    playSound('kkg_boom', { volume: v });
+                    playSound('kkg_end', { volume: v });
+                    playSound('boom', { volume: v });
+                    spawnEffect('red_burst', tx, ty, { centered: true, scale: 1.6, life: 40, fade: 15 });
+                    spawnEffect('splash', tx, ty, { centered: true, scale: 2.4, life: 30, fade: 15 });
+                    spawnEffect('dust_burst', tx, ty + 30, { scale: 2.2 });
+                    spawnEffect('cracks', tx, ty + 20, { scale: 2 });
+                    createExplosion(tx, ty, { radius: 480, colors: HAKI, smoke: 0.6 });
+                    startShockwave(tx, ty, 620, 18);
+                }
+            });
+        });
+        finishAt(250);
+    }
+
+    // [3] Leo Bazooka: both fists drawn back, he springs in and blasts the cursor with both palms
+    function castLeoBazooka(tx, ty) {
+        faceTarget(tx);
+        startCast('lb_charge');
+        playSound('lb_voice');
+        playSound('charge_big', { volume: 0.5 });
+        spawnEffect('charge_red', player.x, player.y - 40, { centered: true, life: 30 });
+        after(31, () => {
+            setPlayerAnim('lb_push');
+            playSound('dash', { volume: 0.8 });
+            dashAt(tx, ty, 550, () => disturbDebris(player.x, player.y - 40, 120, 8), () => {
+                const x = player.x + 50 * player.direction, y = player.y - 45;
+                const v = Math.max(0.4, nearVolume(x, y));
+                playSound('lb_push', { volume: v });
+                playSound('hit', { volume: v });
+                player.floatTicks = 35;
+                spawnEffect('shockwave', x, y, { centered: true, scale: 2.2 });
+                spawnEffect('ring', x, y, { centered: true, scale: 1.6 });
+                createExplosion(x, y, { radius: 290, colors: HAKI });
+                startShockwave(x, y, 420, 13);
+                finishAt(40);
+            });
+        });
+    }
+
+    // [4] Rhino Schneider: he rams the cursor feet first
+    function castRhinoSchneider(tx, ty) {
+        faceTarget(tx);
+        startCast('rs_body');
+        playSound('rs_voice');
+        playSound('charge_small', { volume: 0.5 });
+        after(34, () => {
+            playSound('g4_compress');
+            dashAt(tx, ty, 750, () => disturbDebris(player.x, player.y - 40, 120, 8), () => {
+                const x = player.x + 45 * player.direction, y = player.y - 30;
+                const v = Math.max(0.4, nearVolume(x, y));
+                playSound('rs_hit', { volume: v });
+                playSound('hit', { volume: v });
+                player.floatTicks = 25;
+                spawnEffect('shock', x, y, { centered: true, scale: 1.6 });
+                spawnEffect('impact', x, y, { centered: true, scale: 1.5, facing: player.direction });
+                createExplosion(x, y, { radius: 250, colors: HAKI });
+                finishAt(30);
+            });
+        });
+    }
+
+    // [5] Culverin: his punch winds around in square turns before it lands on the cursor
+    function castCulverin(tx, ty) {
+        faceTarget(tx);
+        startCast('cv_body');
+        playSound('cv_voice');
+        playSound('charge_small', { volume: 0.5 });
+        const path = zigzagPath(tx, ty, 3, 140);
+        let dist = 0;
+        [shoulder(), ...path].reduce((a, b) => { dist += Math.hypot(b[0] - a[0], b[1] - a[1]); return b; });
+        after(35, () => {
+            playSound('cv_go');
+            stretchArm(path, {
+                tip: 'arm_g4', speed: 50, hold: 12,
+                onHit: (x, y) => {
+                    const v = Math.max(0.4, nearVolume(x, y));
+                    playSound('cv_hit', { volume: v });
+                    playSound('hit', { volume: v });
+                    spawnEffect('burst', x, y, { centered: true, scale: 1.6, rotation: Math.atan2(ty - y, 0.01) });
+                    spawnEffect('spark', x, y, { centered: true, scale: 1.5 });
+                    createExplosion(x, y, { radius: 220, colors: HAKI });
+                }
+            });
+        });
+        finishAt(35 + armTicks(dist, 50, 12) + 6);
+    }
+
+    // [6] Kong Organ: a barrage of giant haki fists hammers the area around the cursor
+    function castKongOrgan(tx, ty) {
+        faceTarget(tx);
+        startCast('ko_body');
+        playSound('ko_voice');
+        playSound('charge_small', { volume: 0.5 });
+        spawnEffect('steam', player.x, player.y, { follow: true });
+        after(33, () => {
+            playSound('ko_go');
+            playSound('barrage_start');
+            armBarrage(tx, ty, { ticks: 95, every: 3, spread: 100, tip: 'arm_g4', radius: 75, colors: HAKI, fx: 'impact', fxScale: 0.9 });
+        });
+        finishAt(140);
+    }
+
+    // ---- Gear 4 Snakeman
+
+    // [1] Jet Culverin: a lightning-fast punch that snakes around to strike the cursor
+    function castJetCulverin(tx, ty) {
+        faceTarget(tx);
+        startCast('sn_charge');
+        playSound('sn_voice');
+        playSound('charge_small', { volume: 0.5 });
+        const path = snakePath(tx, ty, 3, 110);
+        after(31, () => {
+            setPlayerAnim('sn_punch');
+            playSound('sn_go');
+            playSound('sn_travel', { volume: 0.6 });
+            stretchArm(path, {
+                tip: 'arm_snake', speed: 75, hold: 12,
+                onStep: (x, y) => { if (Math.random() < 0.15) spawnEffect('swirl', x, y, { centered: true, scale: 0.8 }); },
+                onHit: (x, y) => {
+                    const v = Math.max(0.4, nearVolume(x, y));
+                    playSound('sn_hit', { volume: v });
+                    playSound('sn_snap', { volume: v });
+                    spawnEffect('sn_ring', x, y, { centered: true, scale: 1.2 });
+                    spawnEffect('swirl2', x, y, { centered: true, scale: 1.4 });
+                    spawnEffect('burst', x, y, { centered: true, scale: 1.4, facing: player.direction });
+                    createExplosion(x, y, { radius: 230, colors: HAKI });
+                }
+            });
+        });
+        finishAt(31 + armTicks(900, 75, 12));
+    }
+
+    // [2] Jet Python: a punch that loops around in a wide square before it strikes
+    function castJetPython(tx, ty) {
+        faceTarget(tx);
+        startCast('sn_charge');
+        playSound('jp_voice');
+        playSound('charge_small', { volume: 0.5 });
+        const path = zigzagPath(tx, ty, 2, 200);
+        after(31, () => {
+            setPlayerAnim('sn_punch');
+            playSound('jp_go');
+            stretchArm(path, {
+                tip: 'arm_snake', speed: 70, hold: 14,
+                onHit: (x, y) => {
+                    const v = Math.max(0.4, nearVolume(x, y));
+                    playSound('sn_hit', { volume: v });
+                    playSound('sn_snap', { volume: v });
+                    spawnEffect('sn_ring', x, y, { centered: true, scale: 1.6 });
+                    spawnEffect('sn_ring', x + 30 * player.direction, y, { centered: true, scale: 1 });
+                    spawnEffect('burst', x, y, { centered: true, scale: 1.6, facing: player.direction });
+                    createExplosion(x, y, { radius: 260, colors: HAKI });
+                }
+            });
+        });
+        finishAt(31 + armTicks(1100, 70, 14));
+    }
+
+    // [3] Jet Culverin Gatling: a blur of snaking punches rakes the area around the cursor
+    function castJetCulverinGatling(tx, ty) {
+        faceTarget(tx);
+        startCast('jcg_body');
+        playSound('jcg_voice');
+        playSound('charge_small', { volume: 0.5 });
+        after(70, () => {
+            playSound('jcg_loop', { volume: 0.7 });
+            for (let t = 0; t < 100; t += 14) after(t, () => spawnEffect('jcg_arms', player.x + 40 * player.direction, player.y - 45, { facing: player.direction }));
+            armBarrage(tx, ty, { ticks: 100, every: 2, spread: 110, tip: 'arm_snake', radius: 60, colors: HAKI, fx: 'jcg_ring', fxScale: 0.7, curve: 40, sound: 'sn_hit' });
+        });
+        finishAt(190);
+    }
+
+    // [4] Black Mamba: snake-quick punches whip in from every angle at the cursor
+    function castBlackMamba(tx, ty) {
+        faceTarget(tx);
+        startCast('bm_body');
+        playSound('bm_voice');
+        playSound('charge_small', { volume: 0.5 });
+        after(33, () => {
+            playSound('bm_go');
+            playSound('bm_loop', { volume: 0.7 });
+            armBarrage(tx, ty, { ticks: 90, every: 3, spread: 130, tip: 'arm_snake', radius: 65, colors: HAKI, fx: 'spikes', fxScale: 0.7, curve: 90, sound: 'sn_hit' });
+        });
+        finishAt(140);
+    }
+
+    // [5] King Cobra: one colossal snaking punch that crashes into the cursor
+    function castKingCobra(tx, ty) {
+        faceTarget(tx);
+        startCast('kc_body');
+        playSound('kc_voice');
+        playSound('charge_big', { volume: 0.6 });
+        spawnEffect('charge_red', player.x, player.y - 35, { centered: true, life: 30 });
+        const path = snakePath(tx, ty, 4, 160);
+        after(39, () => {
+            playSound('kc_go');
+            playSound('snap_far');
+            stretchArm(path, {
+                tip: 'arm_snake', width: 9, tipScale: 1.8, speed: 50, hold: 30,
+                onStep: (x, y) => { if (Math.random() < 0.2) spawnEffect('swirl', x, y, { centered: true }); },
+                onHit: (x, y) => {
+                    const v = Math.max(0.5, nearVolume(x, y));
+                    playSound('kc_hit', { volume: v });
+                    playSound('kc_boom', { volume: v });
+                    after(20, () => playSound('kc_end', { volume: v }));
+                    spawnEffect('spikes', x, y, { centered: true, scale: 2.5 });
+                    spawnEffect('kc_streak', x, y, { centered: true, scale: 1.5, rotation: Math.atan2(y - player.y, x - player.x) });
+                    spawnEffect('sn_ring', x, y, { centered: true, scale: 2.4 });
+                    createExplosion(x, y, { radius: 440, colors: HAKI, smoke: 0.5 });
+                    startShockwave(x, y, 560, 16);
+                }
+            });
+        });
+        finishAt(39 + armTicks(1200, 50, 30));
+    }
+
+    // ---- Gear 5
+
+    // [1] Rubber Ray: he flings a crackling bolt of rubbery lightning at the cursor
+    function castRubberRay(tx, ty) {
+        faceTarget(tx);
+        startCast('ry_body');
+        playSound('ry_voice');
+        playSound('charge_small', { volume: 0.5 });
+        after(8, () => playSound('ry_charge', { volume: 0.7 }));
+        after(35, () => {
+            playSound('ry_fire');
+            const [hx, hy] = luffyHand();
+            launch(hx, hy, tx, ty, 16, [{ name: 'ry_bolt', scale: 1.2 }], (x, y) => {
+                const v = Math.max(0.4, nearVolume(x, y));
+                playSound('ry_hit', { volume: v });
+                playSound('ry_boom', { volume: v });
+                spawnEffect('ry_burst', x, y, { centered: true, scale: 1.8 });
+                spawnEffect('ry_dome', x, y + 20, { scale: 1.6 });
+                spawnEffect('ry_wave', x, y, { centered: true, scale: 1.4 });
+                createExplosion(x, y, { radius: 270, colors: NIKA });
+            });
+        });
+        finishAt(70);
+    }
+
+    // [2] Gigant Stomp: a giant Luffy rises over the cursor and stamps it flat
+    function castGigantStomp(tx, ty) {
+        faceTarget(tx);
+        startCast('gs_body');
+        playSound('gs_voice');
+        playSound('charge_small', { volume: 0.5 });
+        after(37, () => {
+            playSound('gs_grow', { volume: 0.8 });
+            spawnEffect('gs_giant', tx, ty, { scale: 3, facing: player.direction });
+            // He leaps off and becomes the giant, so the small Luffy is gone until the stomp is over
+            playSound('jump');
+            spawnEffect('puff', player.x, player.y - 30, { centered: true });
+            player.hidden = true;
+        });
+        after(37 + GIGANT_STOMP_AT + 40, () => spawnEffect('puff', player.x, player.y - 30, { centered: true }));
+        after(37 + GIGANT_STOMP_AT, () => {
+            const v = Math.max(0.5, nearVolume(tx, ty));
+            playSound('gs_stomp', { volume: v });
+            playSound('gs_boom', { volume: v });
+            playSound('quake', { volume: v });
+            spawnEffect('gs_spike', tx, ty - 20, { centered: true, scale: 2 });
+            spawnEffect('gs_wave', tx, ty - 20, { centered: true, scale: 2.4 });
+            spawnEffect('ring5', tx, ty, { centered: true, scale: 2.4 });
+            createExplosion(tx, ty, { radius: 420, colors: NIKA, smoke: 0.5 });
+            startShockwave(tx, ty, 700, 16);
+            // The quake runs out along the ground both ways
+            for (let k = 1; k <= 4; k++) {
+                after(k * 5, () => {
+                    for (const side of [-1, 1]) createExplosion(tx + side * (160 + k * 110), ty, { radius: 130, colors: NIKA, smoke: 0.2 });
+                });
+            }
+        });
+        finishAt(37 + GIGANT_STOMP_AT + 40);
+    }
+    const GIGANT_STOMP_AT = 50; // ticks into gs_giant (sped up to half its length) when the foot lands
+
+    // [3] Rolling the World: he grabs the page like a rug and rolls a wave of it at the cursor
+    function castRollingTheWorld(tx, ty) {
+        faceTarget(tx);
+        startCast('rw_spin');
+        playSound('rw_voice');
+        playSound('charge_small', { volume: 0.5 });
+        after(38, () => {
+            setPlayerAnim('rw_roll');
+            playSound('rw_grab');
+            playSound('rw_roll', { volume: 0.8 });
+            const sx = player.x + 40 * player.direction, sy = player.y - 10;
+            const steps = 22;
+            for (let k = 0; k <= steps; k++) {
+                after(k * 3, () => {
+                    const t = k / steps;
+                    const x = sx + (tx - sx) * t, y = sy + (ty - sy) * t + Math.sin(k * 0.9) * 30;
+                    if (k % 4 === 0) playSound('rw_wave', { volume: 0.5 * Math.max(0.3, nearVolume(x, y)), minGap: 0 });
+                    spawnEffect('ring5', x, y, { centered: true, scale: 0.9 });
+                    createExplosion(x, y, { radius: 110, colors: NIKA, smoke: 0.15 });
+                    disturbDebris(x, y, 160, 9);
+                });
+            }
+            after(steps * 3 + 4, () => {
+                playSound('rw_end', { volume: Math.max(0.4, nearVolume(tx, ty)) });
+                spawnEffect('cloud', tx, ty, { centered: true, scale: 2 });
+                createExplosion(tx, ty, { radius: 300, colors: NIKA });
+                startShockwave(tx, ty, 460, 13);
+            });
+        });
+        finishAt(38 + 22 * 3 + 30);
+    }
+
+    // [4] Giant Assault: he dashes in, balloons into a giant and punches the cursor
+    function castGiantAssault(tx, ty) {
+        faceTarget(tx);
+        startCast('ga_dash');
+        playSound('ga_voice');
+        playSound('charge_small', { volume: 0.5 });
+        after(20, () => {
+            playSound('ga_go');
+            dashAt(tx, ty, 600, () => disturbDebris(player.x, player.y - 40, 120, 8), () => {
+                player.floatTicks = 70;
+                setPlayerAnim('ga_giant');
+                playSound('ga_grow');
+                spawnEffect('ga_cloud', player.x, player.y, { scale: 1.4 });
+                after(35, () => {
+                    setPlayerAnim('ga_punch');
+                    const x = player.x + 90 * player.direction, y = player.y - 70;
+                    const v = Math.max(0.5, nearVolume(x, y));
+                    playSound('ga_hit', { volume: v });
+                    playSound('boom', { volume: v });
+                    after(25, () => playSound('ga_end', { volume: v }));
+                    spawnEffect('ga_flash', x, y, { centered: true, scale: 2, facing: player.direction });
+                    spawnEffect('ga_rocks', x, y, { centered: true, scale: 2 });
+                    spawnEffect('ring5', x, y, { centered: true, scale: 2 });
+                    createExplosion(x, y, { radius: 380, colors: NIKA });
+                    startShockwave(x, y, 520, 15);
+                });
+                finishAt(75);
+            });
+        });
+    }
+
+    // [5] Giant Hand: a gigantic arm comes down out of the sky and slaps the cursor flat
+    function castGiantHand(tx, ty) {
+        faceTarget(tx);
+        startCast('gh_body');
+        playSound('gh_voice');
+        playSound('charge_big', { volume: 0.5 });
+        after(62, () => {
+            playSound('gh_fall', { volume: 0.8 });
+            skySlam('gh_arm', tx, ty, {
+                scale: 1.3, fall: 16, hold: 40,
+                onLand: () => {
+                    const v = Math.max(0.5, nearVolume(tx, ty));
+                    playSound('gh_hit', { volume: v });
+                    playSound('gh_boom', { volume: v });
+                    playSound('gh_rumble', { volume: v });
+                    spawnEffect('dust_cloud', tx, ty, { centered: true, scale: 2.4 });
+                    spawnEffect('ring_v', tx, ty, { centered: true, scale: 2.4, rotation: Math.PI / 2 });
+                    spawnEffect('ring5', tx, ty + 20, { centered: true, scale: 2.4 });
+                    createExplosion(tx, ty, { radius: 420, colors: NIKA, smoke: 0.5 });
+                    startShockwave(tx, ty, 600, 16);
+                }
+            });
+        });
+        finishAt(130);
+    }
+
+    // [6] Giant Head: his head swells to a grinning giant and he headbutts the cursor
+    function castGiantHead(tx, ty) {
+        faceTarget(tx);
+        startCast('hd_body');
+        playSound('hd_voice');
+        playSound('charge_small', { volume: 0.5 });
+        after(43, () => {
+            setPlayerAnim('hd_head');
+            playSound('hd_grow');
+            playSound('hd_laugh');
+            spawnEffect('streaks', player.x, player.y - 60, { centered: true, scale: 1.6, facing: player.direction });
+            dashAt(tx, ty, 550, () => disturbDebris(player.x, player.y - 60, 160, 10), () => {
+                player.floatTicks = 40;
+                const x = player.x + 60 * player.direction, y = player.y - 80;
+                const v = Math.max(0.5, nearVolume(x, y));
+                playSound('hd_hit', { volume: v });
+                playSound('hd_boom', { volume: v });
+                spawnEffect('ring5', x, y, { centered: true, scale: 2.2 });
+                spawnEffect('ring_v', x, y, { centered: true, scale: 2 });
+                createExplosion(x, y, { radius: 380, colors: NIKA });
+                startShockwave(x, y, 500, 14);
+                setPlayerAnim('hd_end');
+                finishAt(45);
+            });
+        });
+    }
+
+    // [7] Bajrang Gun: a fist the size of a mountain comes down from the sky on the cursor
+    function castBajrangGun(tx, ty) {
+        faceTarget(tx);
+        startCast('bj_body');
+        playSound('bj_voice');
+        playSound('bj_drum', { volume: 0.7 });
+        playSound('charge_big', { volume: 0.6 });
+        spawnEffect('charge', player.x, player.y - 30, { centered: true, scale: 2, life: 30 });
+        after(34, () => {
+            playSound('bj_go');
+            playSound('gh_fall', { volume: 0.9 });
+            skySlam('gh_arm', tx, ty, {
+                scale: 2.8, fall: 24, hold: 60,
+                onLand: () => {
+                    const v = Math.max(0.6, nearVolume(tx, ty));
+                    playSound('gh_boom', { volume: v });
+                    playSound('kkg_boom', { volume: v });
+                    playSound('quake', { volume: v });
+                    spawnEffect('dust_cloud', tx, ty, { centered: true, scale: 4.5 });
+                    spawnEffect('ring5', tx, ty, { centered: true, scale: 4 });
+                    spawnEffect('cloud', tx, ty - 60, { centered: true, scale: 3 });
+                    createExplosion(tx, ty, { radius: 560, colors: NIKA, smoke: 0.8 });
+                    startShockwave(tx, ty, 900, 22);
+                    for (let k = 1; k <= 3; k++) {
+                        after(k * 8, () => {
+                            for (const side of [-1, 1]) createExplosion(tx + side * (220 + k * 120), ty + (Math.random() - 0.5) * 80, { radius: 180, colors: NIKA, smoke: 0.2 });
+                        });
+                    }
+                }
+            });
+        });
+        finishAt(150);
+    }
+
+    // ---- Transformations (T): Base → Gear 4 Boundman → Snakeman → Gear 5 → Base
+    function castLuffyTransform() {
+        const next = (player.form + 1) % CHAR_FORMS.length;
+        player.casting = true;
+        player.vx = 0;
+        if (next === 0) {
+            // Back to base: a puff of steam and he's himself again
+            playSound('g4_puff', { volume: 0.6 });
+            spawnEffect('smoke', player.x, player.y - 35, { centered: true, scale: 1.4 });
+            player.form = 0;
+            setPlayerAnim('idle');
+            after(20, endCast);
+            return;
+        }
+        const anim = `tf_${next}`;
+        player.anim = createAnim(anim);
+        const total = Math.min(220, charData.anims[anim].frames.reduce((n, f) => n + f.t, 0));
+        playSound('charge_big', { volume: 0.5 });
+        spawnEffect('charge_red', player.x, player.y - 35, { centered: true, life: 30 });
+        spawnEffect('ground_ring', player.x, player.y, { scale: 1.4 });
+        if (next === 1) {
+            playSound('tf_voice_1');
+            after(28, () => spawnEffect('ground_ring', player.x, player.y, { scale: 1.6 }));
+            after(90, () => { playSound('tf_puff_1'); spawnEffect('tf_1_line', player.x, player.y, { follow: true }); });
+            after(117, () => spawnEffect('dust_burst', player.x, player.y + 5, { scale: 1 }));
+            after(150, () => { playSound('tf_done_1'); spawnEffect('ring', player.x + 35 * player.direction, player.y - 80, { centered: true, scale: 1.2 }); });
+        } else if (next === 2) {
+            after(45, () => playSound('tf_snake'));
+            after(54, () => spawnEffect('tf_2_fx', player.x, player.y, { follow: true }));
+            after(total - 20, () => playSound('tf_snake_done'));
+        } else {
+            playSound('tf_g5');
+            after(66, () => {
+                playSound('tf_g5_burst');
+                playSound('tf_bolt', { volume: 0.6 });
+                spawnEffect('tf_3_ring', player.x, player.y - 35, { centered: true, scale: 1.6 });
+                spawnEffect('ring5', player.x, player.y, { centered: true, scale: 1.4 });
+                for (const dx of [-60, 60]) spawnEffect('tf_3_bolt', player.x + dx, player.y, { scale: 1.2 });
+            });
+            after(141, () => playSound('tf_g5_laugh'));
+        }
+        after(total, () => {
+            player.form = next;
+            endCast();
+            setPlayerAnim('idle');
+        });
+    }
+
     // ---------------- Goku ----------------
 
     // Hands for ki attacks: in front of the chest
@@ -2665,6 +3523,7 @@
     const FORM_VOICE = { 1: 'voice_tf_1', 2: 'voice_tf_2', 3: 'voice_tf_3', 5: 'voice_tf_1', 6: 'voice_tf_1', 7: 'voice_tf_7', 8: 'voice_tf_7' };
 
     function castTransform() {
+        if (CHAR_ID === 'luffy') return castLuffyTransform();
         const next = (player.form + 1) % CHAR_FORMS.length;
         player.casting = true;
         player.vx = 0;
@@ -3066,6 +3925,8 @@
         if (++supportClock % 10 === 0) checkRubbleSupport();
         updatePlayer();
 
+        updateArms();
+
         // Effects
         for (let i = effects.length - 1; i >= 0; i--) {
             const fx = effects[i];
@@ -3131,6 +3992,7 @@
         }
 
         drawEffects(true);
+        drawArms();
         if (!player.hidden) drawAnim(player.anim, player.x, player.y, player.direction);
         drawEffects(false);
 

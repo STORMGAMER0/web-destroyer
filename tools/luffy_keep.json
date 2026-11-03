@@ -1,0 +1,416 @@
+{
+ "air": "Luffy_All_Forms.air",
+ "pixel": [
+  "idle_0",
+  "run_0",
+  "jump_up_0",
+  "jump_peak_0",
+  "jump_down_0",
+  "idle_1",
+  "run_1",
+  "jump_up_1",
+  "jump_peak_1",
+  "jump_down_1",
+  "idle_2",
+  "run_2",
+  "jump_up_2",
+  "jump_peak_2",
+  "jump_down_2",
+  "idle_3",
+  "run_3",
+  "jump_up_3",
+  "jump_peak_3",
+  "jump_down_3",
+  "rh_charge",
+  "rh_punch",
+  "hg_charge",
+  "hg_loop",
+  "hg_end",
+  "rr_wind",
+  "rr_swing",
+  "g3_up",
+  "g3_fall",
+  "eb_charge",
+  "eb_rush",
+  "kg_charge",
+  "kg_punch",
+  "kkg_body",
+  "kkg_fist",
+  "lb_charge",
+  "lb_push",
+  "rs_body",
+  "cv_body",
+  "ko_body",
+  "sn_charge",
+  "sn_punch",
+  "jcg_body",
+  "bm_body",
+  "kc_body",
+  "ry_body",
+  "gs_body",
+  "gs_giant",
+  "rw_spin",
+  "rw_roll",
+  "ga_dash",
+  "ga_giant",
+  "ga_punch",
+  "gh_body",
+  "gh_arm",
+  "hd_body",
+  "hd_head",
+  "hd_end",
+  "bj_body",
+  "tf_1",
+  "tf_2",
+  "tf_3"
+ ],
+ "anims": {
+  "idle_0": {
+   "anim": 0,
+   "loop": true
+  },
+  "run_0": {
+   "anim": 20,
+   "loop": true
+  },
+  "jump_up_0": 41,
+  "jump_peak_0": 41,
+  "jump_down_0": 44,
+  "idle_1": {
+   "anim": 2000,
+   "loop": true
+  },
+  "run_1": {
+   "anim": 2020,
+   "loop": true
+  },
+  "jump_up_1": 2041,
+  "jump_peak_1": 2041,
+  "jump_down_1": 2044,
+  "idle_2": {
+   "anim": 4000,
+   "loop": true
+  },
+  "run_2": {
+   "anim": 4020,
+   "loop": true
+  },
+  "jump_up_2": 4041,
+  "jump_peak_2": 4041,
+  "jump_down_2": 4044,
+  "idle_3": {
+   "anim": 70000,
+   "loop": true,
+   "range": [
+    0,
+    4
+   ]
+  },
+  "run_3": {
+   "anim": 70020,
+   "loop": true
+  },
+  "jump_up_3": 70041,
+  "jump_peak_3": 70041,
+  "jump_down_3": 70044,
+  "charge": {
+   "anim": 7400,
+   "bake": 0.4
+  },
+  "charge_red": {
+   "anim": 7405,
+   "bake": 0.4
+  },
+  "spark": {
+   "anim": 7018,
+   "bake": 0.3
+  },
+  "dust": {
+   "anim": 7022,
+   "bake": 0.5
+  },
+  "shock": {
+   "anim": 1140,
+   "bake": 0.5
+  },
+  "impact": {
+   "anim": 3015,
+   "bake": 0.4
+  },
+  "burst": {
+   "anim": 8808,
+   "bake": 0.4
+  },
+  "ring": {
+   "anim": 9036,
+   "bake": 0.4
+  },
+  "ground_ring": {
+   "anim": 7041,
+   "bake": 0.5
+  },
+  "smoke": {
+   "anim": 1780,
+   "decimate": 2,
+   "bake": 0.4
+  },
+  "puff": {
+   "anim": 11200,
+   "bake": 0.35
+  },
+  "cracks": {
+   "anim": 8240,
+   "decimate": 4,
+   "bake": 0.5
+  },
+  "dust_burst": {
+   "anim": 8260,
+   "decimate": 3,
+   "bake": 0.5
+  },
+  "rocks": {
+   "anim": 35012,
+   "bake": 0.5
+  },
+  "rubble": {
+   "anim": 35011,
+   "decimate": 2,
+   "bake": 0.5
+  },
+  "shockwave": {
+   "anim": 215,
+   "bake": 0.6
+  },
+  "steam": 86003,
+  "arm_base": 1553,
+  "arm_fire": 1552,
+  "arm_haki": 1544,
+  "arm_g4": {
+   "anim": 15442,
+   "range": [
+    2,
+    3
+   ]
+  },
+  "arm_snake": {
+   "anim": 42951,
+   "range": [
+    0,
+    1
+   ]
+  },
+  "rh_charge": 1000,
+  "rh_punch": 1004,
+  "fire": {
+   "anim": 1020,
+   "bake": 0.4
+  },
+  "fire_burst": {
+   "anim": 1050,
+   "bake": 0.5
+  },
+  "fire_ring": {
+   "anim": 1120,
+   "bake": 0.5
+  },
+  "fire_smoke": {
+   "anim": 1052,
+   "decimate": 2,
+   "bake": 0.4
+  },
+  "hg_charge": 1500,
+  "hg_loop": {
+   "anim": 1501,
+   "loop": true
+  },
+  "hg_end": 1502,
+  "rr_wind": 2700,
+  "rr_swing": 2701,
+  "rr_fist": {
+   "anim": 1450,
+   "bake": 0.5
+  },
+  "rr_burst": {
+   "anim": 1451,
+   "bake": 0.5
+  },
+  "rr_spiral": {
+   "anim": 1080,
+   "decimate": 2,
+   "bake": 0.35
+  },
+  "g3_up": 18000,
+  "g3_fall": 18010,
+  "g3_ring": {
+   "anim": 7017,
+   "bake": 0.5
+  },
+  "eb_charge": 1400,
+  "eb_rush": 3001,
+  "kg_charge": 41000,
+  "kg_punch": 4101,
+  "kkg_body": 3300,
+  "kkg_fist": 3350,
+  "red_burst": {
+   "anim": 35000,
+   "decimate": 3,
+   "bake": 0.5
+  },
+  "splash": {
+   "anim": 30500,
+   "bake": 0.5
+  },
+  "lb_charge": 43000,
+  "lb_push": 43001,
+  "rs_body": 42000,
+  "cv_body": {
+   "anim": 44000,
+   "range": [
+    0,
+    3
+   ]
+  },
+  "ko_body": {
+   "anim": 46000,
+   "loop": true
+  },
+  "sn_charge": 4999,
+  "sn_punch": {
+   "anim": 41100,
+   "range": [
+    2,
+    3
+   ]
+  },
+  "sn_ring": {
+   "anim": 87103,
+   "decimate": 3,
+   "bake": 0.5
+  },
+  "swirl": {
+   "anim": 858,
+   "bake": 0.4
+  },
+  "swirl2": {
+   "anim": 859,
+   "decimate": 2,
+   "bake": 0.4
+  },
+  "jcg_body": 43550,
+  "jcg_arms": 43555,
+  "jcg_ring": {
+   "anim": 43560,
+   "bake": 0.5
+  },
+  "bm_body": 42950,
+  "spikes": {
+   "anim": 87100,
+   "bake": 0.8
+  },
+  "kc_body": 43005,
+  "kc_streak": {
+   "anim": 43013,
+   "decimate": 3,
+   "bake": 0.5
+  },
+  "ry_body": 71001,
+  "ry_bolt": {
+   "anim": 87148,
+   "loop": true,
+   "bake": 0.5
+  },
+  "ry_burst": {
+   "anim": 87149,
+   "bake": 0.5
+  },
+  "ry_dome": {
+   "anim": 87146,
+   "bake": 0.6
+  },
+  "ry_wave": {
+   "anim": 87147,
+   "bake": 0.6
+  },
+  "gs_body": 71150,
+  "gs_giant": {
+   "anim": 71151,
+   "timescale": 0.5
+  },
+  "gs_spike": {
+   "anim": 87125,
+   "bake": 0.6
+  },
+  "gs_wave": {
+   "anim": 87140,
+   "bake": 0.6
+  },
+  "cloud": {
+   "anim": 87124,
+   "bake": 0.5
+  },
+  "ring5": {
+   "anim": 87162,
+   "bake": 0.5
+  },
+  "rw_spin": 71170,
+  "rw_roll": 71172,
+  "ga_dash": 71300,
+  "ga_giant": 71302,
+  "ga_punch": 71303,
+  "ga_cloud": {
+   "anim": 87163,
+   "bake": 0.5
+  },
+  "ga_rocks": {
+   "anim": 87165,
+   "bake": 0.5
+  },
+  "ga_flash": {
+   "anim": 87166,
+   "bake": 0.5
+  },
+  "gh_body": 71350,
+  "gh_arm": {
+   "anim": 71351,
+   "range": [
+    0,
+    3
+   ]
+  },
+  "dust_cloud": {
+   "anim": 87150,
+   "bake": 0.6
+  },
+  "ring_v": {
+   "anim": 87129,
+   "bake": 0.5
+  },
+  "hd_body": 71560,
+  "hd_head": 71561,
+  "hd_end": 71563,
+  "streaks": {
+   "anim": 87168,
+   "bake": 0.5
+  },
+  "bj_body": 73000,
+  "tf_1": 900,
+  "tf_1_line": {
+   "anim": 901,
+   "bake": 0.86
+  },
+  "tf_2": {
+   "anim": 3999,
+   "timescale": 0.65
+  },
+  "tf_2_fx": 871,
+  "tf_3": 69999,
+  "tf_3_bolt": {
+   "anim": 552,
+   "bake": 0.25
+  },
+  "tf_3_ring": {
+   "anim": 6070,
+   "bake": 0.3
+  }
+ }
+}

@@ -5,7 +5,8 @@
 #          "decimate": keep every Nth frame, "timescale": multiply frame times, "loop": true,
 #          "first": true to use the first of several actions with the same number (default: last),
 #          "add": true for an effect the character blends additively in code (Trans = add) though
-#          its AIR frames aren't marked so}
+#          its AIR frames aren't marked so,
+#          "range": [a, b] to keep only frames a..b-1 (e.g. a loop at the start of a long action)}
 import json,re,sys,os,io
 from PIL import Image,ImageChops,ImageMath
 char,src,keepf,out=sys.argv[1:5]
@@ -49,13 +50,18 @@ def load(key,scale,add):
 for name,spec in specs.items():
     a=spec['anim']
     fr=[f for f in (first if spec.get('first') else air)[a] if f['g']>=0 and f"{f['g']}_{f['i']}" in idx]
+    if 'range' in spec: fr=fr[spec['range'][0]:spec['range'][1]]
     n=spec.get('decimate',1)
     if n>1: fr=[dict(f,t=f['t']*n) for f in fr[::n]]
     ts=spec.get('timescale',1)
     if ts!=1: fr=[dict(f,t=max(1,round(f['t']*ts))) for f in fr]
-    s=spec.get('bake',1);force=bool(spec.get('add'));add=force or any(f['add'] for f in fr)
+    s=spec.get('bake',1);force=bool(spec.get('add'))
+    # An anim whose frames all glow blends as a whole; one that mixes glowing and plain
+    # frames (a body that flashes, say) marks each glowing frame with "a" instead
+    add=force or all(f['add'] for f in fr)
     anims[name]={'loop':bool(spec.get('loop')),'blend':'add' if add else None,
-        'frames':[{'s':load(f"{f['g']}_{f['i']}",s,f['add'] or force),'t':max(f['t'],1),'x':round(f['x']*s),'y':round(f['y']*s),'flip':f['flip']} for f in fr]}
+        'frames':[dict({'s':load(f"{f['g']}_{f['i']}",s,f['add'] or force),'t':max(f['t'],1),'x':round(f['x']*s),'y':round(f['y']*s),'flip':f['flip']},
+                       **({'a':1} if f['add'] and not add else {})) for f in fr]}
 # The character's own pixel-art frames stay lossless; big painted effects use lossy WebP (much smaller)
 pixel_keys={f['s'] for n in PIXEL if n in anims for f in anims[n]['frames']}
 # shelf pack, tallest first, into MAX x MAX sheets (pixel-art and effects packed separately)
