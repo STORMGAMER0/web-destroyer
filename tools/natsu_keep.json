@@ -1,0 +1,127 @@
+{
+ "air": "Natsu.air",
+ "pixel": [
+  "idle",
+  "run",
+  "jump_up",
+  "jump_peak",
+  "jump_down",
+  "land",
+  "if_body",
+  "bf_body",
+  "cl_body",
+  "cl_flip",
+  "lf_dash",
+  "lf_windup",
+  "lf_barrage",
+  "lf_finish",
+  "ro_body",
+  "su_charge",
+  "su_dash",
+  "su_combo",
+  "fb_pose"
+ ],
+ "anims": {
+  "idle": {
+   "anim": 0,
+   "loop": true
+  },
+  "run": {
+   "anim": 20,
+   "loop": true
+  },
+  "jump_up": 41,
+  "jump_peak": 43,
+  "jump_down": 44,
+  "land": 47,
+  "fire_puff": 1010,
+  "spark": 6020,
+  "fist_fire": 1005,
+  "ember": 1006,
+  "fire_ring": 1007,
+  "dust": 1020,
+  "impact": 6120,
+  "smoke": {
+   "anim": 6100,
+   "decimate": 2
+  },
+  "fire_cloud": 1404,
+  "skid": 6150,
+  "if_body": 1000,
+  "bf_body": 1150,
+  "bf_ball": 1151,
+  "bf_blast": {
+   "anim": 1451,
+   "decimate": 2
+  },
+  "cl_body": 1100,
+  "cl_flip": 1101,
+  "cl_ring": 1115,
+  "cl_burst": 1103,
+  "lf_dash": 1200,
+  "lf_windup": {
+   "anim": 1300,
+   "range": [
+    0,
+    3
+   ]
+  },
+  "lf_barrage": {
+   "anim": 1300,
+   "range": [
+    3,
+    11
+   ],
+   "loop": true
+  },
+  "lf_finish": 1301,
+  "lf_fist": 1302,
+  "ro_body": 1400,
+  "ro_circle": {
+   "anim": 1401,
+   "bake": 0.25
+  },
+  "ro_ball": {
+   "anim": 1402,
+   "loop": true
+  },
+  "ro_flare": 1403,
+  "su_charge": 1500,
+  "su_dash": {
+   "anim": 1501,
+   "loop": true
+  },
+  "su_combo": {
+   "anim": 1502,
+   "range": [
+    0,
+    31
+   ]
+  },
+  "fb_pose": {
+   "anim": 1530,
+   "range": [
+    2,
+    14
+   ],
+   "loop": true
+  },
+  "fb_burst": 1304,
+  "fb_pillar": 1305,
+  "fb_fire": 1524,
+  "fb_swirl": 1531,
+  "fb_swirl2": 1532,
+  "ph_burst": 1515,
+  "ph_pillar": 1516,
+  "ph_blade": {
+   "anim": 1514,
+   "loop": true
+  },
+  "ph_flame": {
+   "anim": 1506,
+   "loop": true
+  },
+  "ph_ring": 1517,
+  "ph_fire": 1518
+ }
+}

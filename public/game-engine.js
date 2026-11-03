@@ -100,7 +100,7 @@
     // character files: sprites keep their real axis (feet / center point) and
     // anims keep MUGEN frame timing (ticks at 60 per second).
     // Which character to play: ?char=sasuke on the page URL (Naruto when missing or unknown)
-    const CHARACTERS = ['naruto', 'sasuke', 'goku', 'luffy'];
+    const CHARACTERS = ['naruto', 'sasuke', 'goku', 'luffy', 'natsu'];
     // Characters with transformations: form names in the order the transform key cycles them
     const FORMS = {
         goku: ['Base', 'Super Saiyan', 'Super Saiyan 2', 'Super Saiyan 3', 'Super Saiyan God',
@@ -1830,6 +1830,15 @@
         { name: 'Giant Head', cast: castGiantHead, forms: [3] },
         { name: 'Bajrang Gun', cast: castBajrangGun, forms: [3] }
     ];
+    ROSTER.natsu = [
+        { name: "Fire Dragon's Iron Fist", cast: castIronFist },
+        { name: "Fire Dragon's Brilliant Flame", cast: castBrilliantFlame },
+        { name: "Fire Dragon's Claw", cast: castClaw },
+        { name: 'Crimson Lotus: Fire Dragon\'s Fist', cast: castLotusFist },
+        { name: "Fire Dragon's Roar", cast: castRoar },
+        { name: 'Exploding Flame Blade', cast: castFlameBlade },
+        { name: 'Phoenix Blade', cast: castPhoenixBlade }
+    ];
     ROSTER.goku = [
         { name: 'Kamehameha', cast: castKamehameha },
         { name: 'Instant Kamehameha', cast: castInstantKamehameha },
@@ -3334,6 +3343,343 @@
             player.form = next;
             endCast();
             setPlayerAnim('idle');
+        });
+    }
+
+    // ---------------- Natsu ----------------
+
+    // His fist, out in front at chest height
+    function natsuFist(reach = 35) {
+        return [player.x + reach * player.direction, player.y - 40];
+    }
+
+    // [1] Fire Dragon's Iron Fist: he lunges at the cursor, fist ablaze, and punches it in
+    function castIronFist(tx, ty) {
+        faceTarget(tx);
+        startCast('if_body');
+        playSound('if_voice');
+        playSound('charge_small', { volume: 0.4 });
+        // if_body's lunge frame comes 11 ticks in, when the original sets him moving
+        after(11, () => {
+            playSound('dash', { volume: 0.7 });
+            playSound('fire_whoosh', { volume: 0.7 });
+            const flame = spawnEffect('fist_fire', player.x, player.y, { follow: true, centered: true, offsetX: 30, offsetY: -40, scale: 0.6, life: 60 });
+            dashAt(tx, ty, 450, i => {
+                if (i % 2 === 0) spawnEffect('fire_puff', player.x - 15 * player.direction, player.y - 40, { centered: true, scale: 0.8 });
+                disturbDebris(player.x, player.y - 40, 100, 6);
+            }, () => {
+                player.floatTicks = 25;
+                flame.life = flame.age;
+                const [x, y] = natsuFist(45);
+                const v = Math.max(0.4, nearVolume(x, y));
+                playSound('fire_hit', { volume: v });
+                playSound('fire_boom', { volume: 0.7 * v });
+                spawnEffect('fist_fire', x, y, { centered: true, scale: 1.6, facing: player.direction });
+                spawnEffect('fire_cloud', x, y, { centered: true, scale: 2.4 });
+                spawnEffect('impact', x, y, { centered: true, scale: 1.5, facing: player.direction });
+                createExplosion(x, y, { radius: 200, colors: FIRE, smoke: 0.5 });
+                startShockwave(x, y, 320, 10);
+                finishAt(30);
+            });
+        });
+    }
+
+    // [2] Fire Dragon's Brilliant Flame: he leaps, gathers a ball of fire overhead and hurls it down
+    function castBrilliantFlame(tx, ty) {
+        faceTarget(tx);
+        startCast('bf_body');
+        playSound('bf_voice');
+        playSound('jump', { volume: 0.6 });
+        // The original is thrown from the air: up he goes, and he hangs there to throw
+        if (player.isGrounded) player.vy = -11;
+        after(12, () => {
+            player.floatTicks = 22;
+            playSound('fire_whoosh', { volume: 0.6 });
+            spawnEffect('bf_ball', player.x, player.y - 75, { centered: true, scale: 1.2, life: 10 });
+        });
+        // bf_body's throw frame (620_0) comes 12 ticks in and holds for 10
+        after(22, () => {
+            const sx = player.x + 25 * player.direction, sy = player.y - 55;
+            playSound('swing', { volume: 0.7 });
+            launch(sx, sy, tx, ty, 8, [{ name: 'bf_ball', scale: 2, aim: 0 }], (x, y) => {
+                const v = Math.max(0.4, nearVolume(x, y));
+                playSound('fire_hit', { volume: v });
+                playSound('fire_boom', { volume: v });
+                spawnEffect('bf_blast', x, y + 40, { scale: 2.2 });
+                spawnEffect('fire_cloud', x, y, { centered: true, scale: 3 });
+                spawnEffect('fire_ring', x, y, { centered: true, scale: 1.6, rotation: Math.PI / 2 });
+                createExplosion(x, y, { radius: 260, colors: FIRE, smoke: 0.6 });
+                startShockwave(x, y, 420, 12);
+            });
+        });
+        finishAt(45);
+    }
+
+    // [3] Fire Dragon's Claw: he flips up at the cursor, feet wreathed in a wheel of fire, and
+    // kicks the fire down onto it, where it bursts back up out of the page
+    function castClaw(tx, ty) {
+        faceTarget(tx);
+        startCast('cl_body');
+        playSound('cl_voice');
+        playSound('dash', { volume: 0.5 });
+        // He leaves the ground 7 ticks in; the kick lands above and short of the cursor
+        after(7, () => {
+            const dir = player.direction;
+            const wheel = spawnEffect('cl_ring', player.x, player.y, { follow: true, offsetX: 10, offsetY: -45, scale: 1.1, life: 80 });
+            playSound('fire_whoosh', { volume: 0.7 });
+            dashAt(tx - 70 * dir, ty - 110, 420, () => disturbDebris(player.x, player.y - 40, 100, 6), () => {
+                player.floatTicks = 22;
+                wheel.life = wheel.age + 8;
+                playSound('swing', { volume: 0.8 });
+                // The fire drops from his feet to the cursor
+                const fx = player.x + 25 * dir, fy = player.y - 20;
+                const drops = 5;
+                for (let k = 1; k <= drops; k++) {
+                    after(k * 2, () => {
+                        const t = k / drops;
+                        spawnEffect('fire_puff', fx + (tx - fx) * t, fy + (ty - fy) * t, { centered: true, scale: 1.4 });
+                    });
+                }
+                after(drops * 2 + 1, () => {
+                    const v = Math.max(0.4, nearVolume(tx, ty));
+                    playSound('cl_hit', { volume: v });
+                    playSound('fire_boom', { volume: 0.8 * v });
+                    spawnEffect('cl_burst', tx, ty + 30, { scale: 2.6 });
+                    spawnEffect('fire_cloud', tx, ty, { centered: true, scale: 2.4 });
+                    createExplosion(tx, ty, { radius: 230, colors: FIRE, smoke: 0.5 });
+                    startShockwave(tx, ty, 360, 11);
+                });
+                // Then he flips back off it
+                after(4, () => {
+                    setPlayerAnim('cl_flip');
+                    player.floatTicks = 0;
+                    player.vy = -6;
+                    player.vx = -3.5 * dir;
+                    playSound('swing2', { volume: 0.5 });
+                });
+                after(30, () => { player.vx = 0; });
+                finishAt(32);
+            });
+        });
+    }
+
+    // [4] Crimson Lotus: Fire Dragon's Fist: he rushes the cursor and buries it under a storm of
+    // flaming punches, then sends it all up with an uppercut
+    const LOTUS_TICKS = 100; // length of the barrage
+    function castLotusFist(tx, ty) {
+        faceTarget(tx);
+        startCast('lf_dash');
+        playSound('su_voice');
+        playSound('charge_small', { volume: 0.5 });
+        after(5, () => {
+            playSound('dash', { volume: 0.7 });
+            dashAt(tx, ty, 500, i => {
+                if (i % 2 === 0) spawnEffect('fire_puff', player.x - 15 * player.direction, player.y - 40, { centered: true, scale: 0.7 });
+            }, () => {
+                player.floatTicks = LOTUS_TICKS + 45;
+                setPlayerAnim('lf_windup');
+                playSound('lf_voice');
+                const dir = player.direction;
+                const cx = player.x + 100 * dir, cy = player.y - 45;
+                after(12, () => setPlayerAnim('lf_barrage'));
+                // Fists of fire fly out all over the space in front of him
+                for (let t = 12; t < 12 + LOTUS_TICKS; t += 4) {
+                    after(t, () => {
+                        const x = cx + (Math.random() - 0.5) * 160, y = cy + (Math.random() - 0.5) * 140;
+                        const v = Math.max(0.3, nearVolume(x, y));
+                        spawnEffect('lf_fist', x, y, { centered: true, scale: 1.3, facing: dir });
+                        createExplosion(x, y, { radius: 60 + Math.random() * 40, colors: FIRE, smoke: 0.1 });
+                        if (t % 8 === 0) {
+                            playSound(Math.random() < 0.5 ? 'swing' : 'swing3', { volume: 0.5 * v, minGap: 0 });
+                            playSound('fire_hit', { volume: 0.35 * v, minGap: 0 });
+                        }
+                    });
+                }
+                // The uppercut
+                after(12 + LOTUS_TICKS, () => {
+                    setPlayerAnim('lf_finish');
+                    const v = Math.max(0.5, nearVolume(cx, cy));
+                    playSound('hit_big', { volume: v });
+                    playSound('fire_boom', { volume: v });
+                    spawnEffect('fire_ring', cx, cy, { centered: true, scale: 2.2 });
+                    spawnEffect('bf_blast', cx, cy + 50, { scale: 2.4 });
+                    createExplosion(cx, cy, { radius: 280, colors: FIRE, smoke: 0.5 });
+                    startShockwave(cx, cy, 420, 12);
+                });
+                finishAt(12 + LOTUS_TICKS + 40);
+            });
+        });
+    }
+
+    // [5] Fire Dragon's Roar: a magic circle flares at his mouth and he breathes a torrent of fire
+    // at the cursor that burns a trench all the way there
+    const ROAR_GROOVE = 26; // half the width of the trench
+    function castRoar(tx, ty) {
+        faceTarget(tx);
+        startCast('ro_body');
+        playSound('ro_voice');
+        playSound('charge_small', { volume: 0.5 });
+        const dir = player.direction;
+        const mouth = () => [player.x + 30 * dir, player.y - 55];
+        // The circle comes up on ro_body's third frame, as in the original
+        after(8, () => {
+            const [mx, my] = mouth();
+            spawnEffect('ro_circle', mx, my, { centered: true, scale: 0.45, life: 45, fade: 12 });
+            spawnEffect('ro_flare', mx, my + 30, { facing: dir, scale: 1.2 });
+        });
+        after(20, () => {
+            const [mx, my] = mouth();
+            const v = Math.max(0.4, nearVolume(tx, ty));
+            playSound('fire_whoosh');
+            playSound('fire_hit', { volume: 0.6 });
+            player.floatTicks = 30;
+            const speed = 11;
+            launch(mx, my, tx, ty, speed, [{ name: 'ro_ball', scale: 2.4, aim: 0 }], (x, y) => {
+                playSound('fire_boom', { volume: v });
+                playSound('fire_hit', { volume: v });
+                spawnEffect('bf_blast', x, y + 45, { scale: 2.4 });
+                spawnEffect('fire_cloud', x, y, { centered: true, scale: 3 });
+                createExplosion(x, y, { radius: 280, colors: FIRE, smoke: 0.5 });
+                startShockwave(x, y, 450, 13);
+            });
+            // The breath burns its trench behind the fireball, a piece every few ticks
+            const d = Math.hypot(tx - mx, ty - my);
+            const ticks = Math.max(1, Math.floor(d / speed));
+            let last = [mx, my];
+            for (let t = 3; t <= ticks; t += 3) {
+                after(t, () => {
+                    const k = t * speed / d;
+                    const x = mx + (tx - mx) * k, y = my + (ty - my) * k;
+                    cutGroove(last[0], last[1], x, y, ROAR_GROOVE);
+                    spawnEffect('fire_cloud', x, y, { centered: true, scale: 1.4 });
+                    last = [x, y];
+                });
+            }
+            after(ticks, () => cutGroove(last[0], last[1], tx, ty, ROAR_GROOVE));
+        });
+        finishAt(50);
+    }
+
+    // The supers start the same way: he powers up, rushes the cursor and lays into it with a
+    // combo. flame: the effect on his fist for the rush. onCombo(x, y) runs when the combo is
+    // done, with the point he was hitting.
+    const SUPER_COMBO = 92; // su_combo's length, up to his last punch
+    function natsuRush(tx, ty, { burst, flame, ember }, onCombo) {
+        faceTarget(tx);
+        startCast('su_charge');
+        playSound('su_start');
+        playSound('charge_big', { volume: 0.6 });
+        after(5, () => playSound('su_voice'));
+        spawnEffect(burst, player.x, player.y, { scale: 1.2 });
+        for (let t = 10; t < 45; t += 5) {
+            after(t, () => spawnEffect(ember, player.x + (Math.random() - 0.5) * 50, player.y - Math.random() * 80, { centered: true, scale: 0.6 }));
+        }
+        after(45, () => {
+            setPlayerAnim('su_dash');
+            playSound('su_dash');
+            const fist = spawnEffect(flame, player.x, player.y, { follow: true, centered: true, offsetX: 25, offsetY: -40, scale: 0.8, life: 60 });
+            dashAt(tx, ty, 700, i => {
+                spawnEffect(ember, player.x - 20 * player.direction, player.y - 40, { centered: true, scale: 0.5 });
+                disturbDebris(player.x, player.y - 40, 120, 8);
+            }, () => {
+                fist.life = fist.age;
+                player.floatTicks = SUPER_COMBO + 200;
+                setPlayerAnim('su_combo');
+                const dir = player.direction;
+                const x = player.x + 45 * dir, y = player.y - 40;
+                playSound('hit_big', { volume: Math.max(0.4, nearVolume(x, y)) });
+                for (let t = 0; t < SUPER_COMBO; t += 7) {
+                    after(t, () => {
+                        const hx = x + (Math.random() - 0.3) * 50 * dir, hy = y + (Math.random() - 0.5) * 70;
+                        spawnEffect(ember, hx, hy, { centered: true, scale: 0.8 });
+                        spawnEffect('spark', hx, hy, { centered: true, scale: 0.6 });
+                        createExplosion(hx, hy, { radius: 55 + Math.random() * 30, colors: FIRE, smoke: 0.1 });
+                        playSound(['swing', 'swing2', 'swing3'][t % 3], { volume: 0.5 * Math.max(0.3, nearVolume(hx, hy)), minGap: 0 });
+                    });
+                }
+                after(SUPER_COMBO, () => onCombo(x, y));
+            });
+        });
+    }
+
+    // [6] Crimson Lotus: Exploding Flame Blade: after the combo he throws his arms wide and two
+    // twisting blades of fire spiral up out of the page, then it all goes up in a pillar of flame
+    function castFlameBlade(tx, ty) {
+        natsuRush(tx, ty, { burst: 'fb_burst', flame: 'fist_fire', ember: 'fb_fire' }, (x, y) => {
+            setPlayerAnim('fb_pose');
+            playSound('fb_voice');
+            const v = Math.max(0.5, nearVolume(x, y));
+            const twist = 70, climb = 9;
+            for (let t = 0; t < 60; t += 2) {
+                after(t, () => {
+                    const s = Math.sin(t * 0.3 + 1.65) * 40;
+                    for (const side of [-1, 1]) {
+                        const sx = x + side * s, sy = y + 40 - t * climb;
+                        spawnEffect(t % 4 ? 'fb_swirl' : 'fb_swirl2', sx, sy, { centered: true, scale: 0.9 });
+                        if (t % 6 === 0) createExplosion(sx, sy, { radius: twist, colors: FIRE, smoke: 0.1 });
+                    }
+                    if (t % 10 === 0) playSound('fb_blade' + (1 + (t / 10) % 3), { volume: 0.6 * v, minGap: 0 });
+                });
+            }
+            after(62, () => {
+                playSound('fb_final', { volume: v });
+                playSound('su_boom', { volume: v });
+                playSound('fire_boom', { volume: v });
+                spawnEffect('fb_pillar', x, y + 60, { scale: 1.5 });
+                spawnEffect('bf_blast', x, y + 50, { scale: 3 });
+                createExplosion(x, y, { radius: 380, colors: FIRE, smoke: 0.6 });
+                startShockwave(x, y, 600, 15);
+                // The pillar burns straight up through the page above
+                cutGroove(x, y, x, y - 500, 60);
+            });
+            finishAt(100);
+        });
+    }
+
+    // [7] Crimson Lotus: Phoenix Blade: after the combo he soars up in a blade of light, then
+    // plunges back down on the spot as a meteor of fire
+    function castPhoenixBlade(tx, ty) {
+        natsuRush(tx, ty, { burst: 'ph_burst', flame: 'ph_flame', ember: 'ph_fire' }, (x, y) => {
+            playSound('ph_voice');
+            playSound('ph_rise');
+            // Up and away
+            const blade = spawnEffect('ph_blade', player.x, player.y + 40, { scale: 1.2, life: 40, fade: 10 });
+            spawnEffect('ph_ring', player.x, player.y - 20, { centered: true, scale: 2 });
+            spawnEffect('ph_burst', player.x, player.y, { scale: 1.6 });
+            player.hidden = true;
+            for (let k = 1; k <= 20; k++) after(k, () => { blade.y -= 30; });
+            // ...and down onto the spot
+            after(40, () => {
+                playSound('ph_fly', { volume: 0.8 });
+                const meteor = skySlam('bf_ball', x, y, {
+                    scale: 3.2, fall: 18, hold: 4,
+                    onLand: () => {
+                        const v = Math.max(0.6, nearVolume(x, y));
+                        playSound('ph_boom', { volume: v });
+                        playSound('su_big', { volume: v });
+                        playSound('crash', { volume: v });
+                        spawnEffect('ph_pillar', x, y + 60, { scale: 1.8 });
+                        spawnEffect('bf_blast', x, y + 60, { scale: 3.6 });
+                        spawnEffect('fire_cloud', x, y, { centered: true, scale: 4 });
+                        spawnEffect('ph_ring', x, y, { centered: true, scale: 4 });
+                        createExplosion(x, y, { radius: 480, colors: FIRE, smoke: 0.6 });
+                        startShockwave(x, y, 760, 18);
+                        // He's standing in the middle of it when the fire clears
+                        after(25, () => {
+                            player.x = x;
+                            player.y = y + 40;
+                            player.vx = 0; player.vy = 0;
+                            player.floatTicks = 0;
+                            player.hidden = false;
+                            setPlayerAnim('land');
+                        });
+                    }
+                });
+                meteor.rotation = Math.PI / 2; // the ball points right in the sheet; turn it to fall
+                meteor.facing = 1;
+                meteor.centered = true;
+            });
+            finishAt(40 + 18 + 40);
         });
     }
 
