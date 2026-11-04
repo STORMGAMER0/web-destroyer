@@ -105,7 +105,7 @@
     const FORMS = {
         goku: ['Base', 'Super Saiyan', 'Super Saiyan 2', 'Super Saiyan 3', 'Super Saiyan God',
                'Super Saiyan Blue', 'Blue Kaioken', 'Ultra Instinct Sign', 'Mastered Ultra Instinct'],
-        luffy: ['Base', 'Gear 4 Boundman', 'Gear 4 Snakeman', 'Gear 5']
+        luffy: ['Base', 'Gear 4 Boundman', 'Gear 4 Snakeman']
     };
     const requested = (new URLSearchParams(location.search).get('char') || '').toLowerCase();
     const CHAR_ID = CHARACTERS.includes(requested) ? requested : 'naruto';
@@ -1821,14 +1821,7 @@
         { name: 'Jet Python', cast: castJetPython, forms: [2] },
         { name: 'Jet Culverin Gatling', cast: castJetCulverinGatling, forms: [2] },
         { name: 'Black Mamba', cast: castBlackMamba, forms: [2] },
-        { name: 'King Cobra', cast: castKingCobra, forms: [2] },
-        { name: 'Rubber Ray', cast: castRubberRay, forms: [3] },
-        { name: 'Gigant Stomp', cast: castGigantStomp, forms: [3] },
-        { name: 'Rolling the World', cast: castRollingTheWorld, forms: [3] },
-        { name: 'Giant Assault', cast: castGiantAssault, forms: [3] },
-        { name: 'Giant Hand', cast: castGiantHand, forms: [3] },
-        { name: 'Giant Head', cast: castGiantHead, forms: [3] },
-        { name: 'Bajrang Gun', cast: castBajrangGun, forms: [3] }
+        { name: 'King Cobra', cast: castKingCobra, forms: [2] }
     ];
     ROSTER.natsu = [
         { name: "Fire Dragon's Iron Fist", cast: castIronFist },
@@ -2523,10 +2516,9 @@
     const ARM_LOOK = [
         { fill: '#eaa271', edge: '#4a1f12', w: 4 },  // Base
         { fill: '#3b1117', edge: '#c3193f', w: 7 },  // Gear 4 Boundman: haki-black, red trim
-        { fill: '#3b1117', edge: '#c3193f', w: 5 },  // Gear 4 Snakeman
-        { fill: '#eaa271', edge: '#f4f4ff', w: 5 }   // Gear 5
+        { fill: '#3b1117', edge: '#c3193f', w: 5 }   // Gear 4 Snakeman
     ];
-    const SHOULDER = [42, 62, 48, 40]; // shoulder height above the feet, per form
+    const SHOULDER = [42, 62, 48]; // shoulder height above the feet, per form
 
     function shoulder() {
         return [player.x + 8 * player.direction, player.y - SHOULDER[player.form]];
@@ -2687,7 +2679,6 @@
 
     const FIRE = ['#ffcc80', '#ff7043', '#ffab00', '#ffffff'];
     const HAKI = ['#3b1117', '#c3193f', '#ff8a80', '#ffffff'];
-    const NIKA = ['#ffffff', '#fff59d', '#e1f5fe'];
 
     function luffyHand() {
         return [player.x + 30 * player.direction, player.y - SHOULDER[player.form] + 4];
@@ -3087,218 +3078,7 @@
         finishAt(39 + armTicks(1200, 50, 30));
     }
 
-    // ---- Gear 5
-
-    // [1] Rubber Ray: he flings a crackling bolt of rubbery lightning at the cursor
-    function castRubberRay(tx, ty) {
-        faceTarget(tx);
-        startCast('ry_body');
-        playSound('ry_voice');
-        playSound('charge_small', { volume: 0.5 });
-        after(8, () => playSound('ry_charge', { volume: 0.7 }));
-        after(35, () => {
-            playSound('ry_fire');
-            const [hx, hy] = luffyHand();
-            launch(hx, hy, tx, ty, 16, [{ name: 'ry_bolt', scale: 1.2 }], (x, y) => {
-                const v = Math.max(0.4, nearVolume(x, y));
-                playSound('ry_hit', { volume: v });
-                playSound('ry_boom', { volume: v });
-                spawnEffect('ry_burst', x, y, { centered: true, scale: 1.8 });
-                spawnEffect('ry_dome', x, y + 20, { scale: 1.6 });
-                spawnEffect('ry_wave', x, y, { centered: true, scale: 1.4 });
-                createExplosion(x, y, { radius: 270, colors: NIKA });
-            });
-        });
-        finishAt(70);
-    }
-
-    // [2] Gigant Stomp: a giant Luffy rises over the cursor and stamps it flat
-    function castGigantStomp(tx, ty) {
-        faceTarget(tx);
-        startCast('gs_body');
-        playSound('gs_voice');
-        playSound('charge_small', { volume: 0.5 });
-        after(37, () => {
-            playSound('gs_grow', { volume: 0.8 });
-            spawnEffect('gs_giant', tx, ty, { scale: 3, facing: player.direction });
-            // He leaps off and becomes the giant, so the small Luffy is gone until the stomp is over
-            playSound('jump');
-            spawnEffect('puff', player.x, player.y - 30, { centered: true });
-            player.hidden = true;
-        });
-        after(37 + GIGANT_STOMP_AT + 40, () => spawnEffect('puff', player.x, player.y - 30, { centered: true }));
-        after(37 + GIGANT_STOMP_AT, () => {
-            const v = Math.max(0.5, nearVolume(tx, ty));
-            playSound('gs_stomp', { volume: v });
-            playSound('gs_boom', { volume: v });
-            playSound('quake', { volume: v });
-            spawnEffect('gs_spike', tx, ty - 20, { centered: true, scale: 2 });
-            spawnEffect('gs_wave', tx, ty - 20, { centered: true, scale: 2.4 });
-            spawnEffect('ring5', tx, ty, { centered: true, scale: 2.4 });
-            createExplosion(tx, ty, { radius: 420, colors: NIKA, smoke: 0.5 });
-            startShockwave(tx, ty, 700, 16);
-            // The quake runs out along the ground both ways
-            for (let k = 1; k <= 4; k++) {
-                after(k * 5, () => {
-                    for (const side of [-1, 1]) createExplosion(tx + side * (160 + k * 110), ty, { radius: 130, colors: NIKA, smoke: 0.2 });
-                });
-            }
-        });
-        finishAt(37 + GIGANT_STOMP_AT + 40);
-    }
-    const GIGANT_STOMP_AT = 50; // ticks into gs_giant (sped up to half its length) when the foot lands
-
-    // [3] Rolling the World: he grabs the page like a rug and rolls a wave of it at the cursor
-    function castRollingTheWorld(tx, ty) {
-        faceTarget(tx);
-        startCast('rw_spin');
-        playSound('rw_voice');
-        playSound('charge_small', { volume: 0.5 });
-        after(38, () => {
-            setPlayerAnim('rw_roll');
-            playSound('rw_grab');
-            playSound('rw_roll', { volume: 0.8 });
-            const sx = player.x + 40 * player.direction, sy = player.y - 10;
-            const steps = 22;
-            for (let k = 0; k <= steps; k++) {
-                after(k * 3, () => {
-                    const t = k / steps;
-                    const x = sx + (tx - sx) * t, y = sy + (ty - sy) * t + Math.sin(k * 0.9) * 30;
-                    if (k % 4 === 0) playSound('rw_wave', { volume: 0.5 * Math.max(0.3, nearVolume(x, y)), minGap: 0 });
-                    spawnEffect('ring5', x, y, { centered: true, scale: 0.9 });
-                    createExplosion(x, y, { radius: 110, colors: NIKA, smoke: 0.15 });
-                    disturbDebris(x, y, 160, 9);
-                });
-            }
-            after(steps * 3 + 4, () => {
-                playSound('rw_end', { volume: Math.max(0.4, nearVolume(tx, ty)) });
-                spawnEffect('cloud', tx, ty, { centered: true, scale: 2 });
-                createExplosion(tx, ty, { radius: 300, colors: NIKA });
-                startShockwave(tx, ty, 460, 13);
-            });
-        });
-        finishAt(38 + 22 * 3 + 30);
-    }
-
-    // [4] Giant Assault: he dashes in, balloons into a giant and punches the cursor
-    function castGiantAssault(tx, ty) {
-        faceTarget(tx);
-        startCast('ga_dash');
-        playSound('ga_voice');
-        playSound('charge_small', { volume: 0.5 });
-        after(20, () => {
-            playSound('ga_go');
-            dashAt(tx, ty, 600, () => disturbDebris(player.x, player.y - 40, 120, 8), () => {
-                player.floatTicks = 70;
-                setPlayerAnim('ga_giant');
-                playSound('ga_grow');
-                spawnEffect('ga_cloud', player.x, player.y, { scale: 1.4 });
-                after(35, () => {
-                    setPlayerAnim('ga_punch');
-                    const x = player.x + 90 * player.direction, y = player.y - 70;
-                    const v = Math.max(0.5, nearVolume(x, y));
-                    playSound('ga_hit', { volume: v });
-                    playSound('boom', { volume: v });
-                    after(25, () => playSound('ga_end', { volume: v }));
-                    spawnEffect('ga_flash', x, y, { centered: true, scale: 2, facing: player.direction });
-                    spawnEffect('ga_rocks', x, y, { centered: true, scale: 2 });
-                    spawnEffect('ring5', x, y, { centered: true, scale: 2 });
-                    createExplosion(x, y, { radius: 380, colors: NIKA });
-                    startShockwave(x, y, 520, 15);
-                });
-                finishAt(75);
-            });
-        });
-    }
-
-    // [5] Giant Hand: a gigantic arm comes down out of the sky and slaps the cursor flat
-    function castGiantHand(tx, ty) {
-        faceTarget(tx);
-        startCast('gh_body');
-        playSound('gh_voice');
-        playSound('charge_big', { volume: 0.5 });
-        after(62, () => {
-            playSound('gh_fall', { volume: 0.8 });
-            skySlam('gh_arm', tx, ty, {
-                scale: 1.3, fall: 16, hold: 40,
-                onLand: () => {
-                    const v = Math.max(0.5, nearVolume(tx, ty));
-                    playSound('gh_hit', { volume: v });
-                    playSound('gh_boom', { volume: v });
-                    playSound('gh_rumble', { volume: v });
-                    spawnEffect('dust_cloud', tx, ty, { centered: true, scale: 2.4 });
-                    spawnEffect('ring_v', tx, ty, { centered: true, scale: 2.4, rotation: Math.PI / 2 });
-                    spawnEffect('ring5', tx, ty + 20, { centered: true, scale: 2.4 });
-                    createExplosion(tx, ty, { radius: 420, colors: NIKA, smoke: 0.5 });
-                    startShockwave(tx, ty, 600, 16);
-                }
-            });
-        });
-        finishAt(130);
-    }
-
-    // [6] Giant Head: his head swells to a grinning giant and he headbutts the cursor
-    function castGiantHead(tx, ty) {
-        faceTarget(tx);
-        startCast('hd_body');
-        playSound('hd_voice');
-        playSound('charge_small', { volume: 0.5 });
-        after(43, () => {
-            setPlayerAnim('hd_head');
-            playSound('hd_grow');
-            playSound('hd_laugh');
-            spawnEffect('streaks', player.x, player.y - 60, { centered: true, scale: 1.6, facing: player.direction });
-            dashAt(tx, ty, 550, () => disturbDebris(player.x, player.y - 60, 160, 10), () => {
-                player.floatTicks = 40;
-                const x = player.x + 60 * player.direction, y = player.y - 80;
-                const v = Math.max(0.5, nearVolume(x, y));
-                playSound('hd_hit', { volume: v });
-                playSound('hd_boom', { volume: v });
-                spawnEffect('ring5', x, y, { centered: true, scale: 2.2 });
-                spawnEffect('ring_v', x, y, { centered: true, scale: 2 });
-                createExplosion(x, y, { radius: 380, colors: NIKA });
-                startShockwave(x, y, 500, 14);
-                setPlayerAnim('hd_end');
-                finishAt(45);
-            });
-        });
-    }
-
-    // [7] Bajrang Gun: a fist the size of a mountain comes down from the sky on the cursor
-    function castBajrangGun(tx, ty) {
-        faceTarget(tx);
-        startCast('bj_body');
-        playSound('bj_voice');
-        playSound('bj_drum', { volume: 0.7 });
-        playSound('charge_big', { volume: 0.6 });
-        spawnEffect('charge', player.x, player.y - 30, { centered: true, scale: 2, life: 30 });
-        after(34, () => {
-            playSound('bj_go');
-            playSound('gh_fall', { volume: 0.9 });
-            skySlam('gh_arm', tx, ty, {
-                scale: 2.8, fall: 24, hold: 60,
-                onLand: () => {
-                    const v = Math.max(0.6, nearVolume(tx, ty));
-                    playSound('gh_boom', { volume: v });
-                    playSound('kkg_boom', { volume: v });
-                    playSound('quake', { volume: v });
-                    spawnEffect('dust_cloud', tx, ty, { centered: true, scale: 4.5 });
-                    spawnEffect('ring5', tx, ty, { centered: true, scale: 4 });
-                    spawnEffect('cloud', tx, ty - 60, { centered: true, scale: 3 });
-                    createExplosion(tx, ty, { radius: 560, colors: NIKA, smoke: 0.8 });
-                    startShockwave(tx, ty, 900, 22);
-                    for (let k = 1; k <= 3; k++) {
-                        after(k * 8, () => {
-                            for (const side of [-1, 1]) createExplosion(tx + side * (220 + k * 120), ty + (Math.random() - 0.5) * 80, { radius: 180, colors: NIKA, smoke: 0.2 });
-                        });
-                    }
-                }
-            });
-        });
-        finishAt(150);
-    }
-
-    // ---- Transformations (T): Base → Gear 4 Boundman → Snakeman → Gear 5 → Base
+    // ---- Transformations (T): Base → Gear 4 Boundman → Snakeman → Base
     function castLuffyTransform() {
         const next = (player.form + 1) % CHAR_FORMS.length;
         player.casting = true;
@@ -3324,20 +3104,10 @@
             after(90, () => { playSound('tf_puff_1'); spawnEffect('tf_1_line', player.x, player.y, { follow: true }); });
             after(117, () => spawnEffect('dust_burst', player.x, player.y + 5, { scale: 1 }));
             after(150, () => { playSound('tf_done_1'); spawnEffect('ring', player.x + 35 * player.direction, player.y - 80, { centered: true, scale: 1.2 }); });
-        } else if (next === 2) {
+        } else {
             after(45, () => playSound('tf_snake'));
             after(54, () => spawnEffect('tf_2_fx', player.x, player.y, { follow: true }));
             after(total - 20, () => playSound('tf_snake_done'));
-        } else {
-            playSound('tf_g5');
-            after(66, () => {
-                playSound('tf_g5_burst');
-                playSound('tf_bolt', { volume: 0.6 });
-                spawnEffect('tf_3_ring', player.x, player.y - 35, { centered: true, scale: 1.6 });
-                spawnEffect('ring5', player.x, player.y, { centered: true, scale: 1.4 });
-                for (const dx of [-60, 60]) spawnEffect('tf_3_bolt', player.x + dx, player.y, { scale: 1.2 });
-            });
-            after(141, () => playSound('tf_g5_laugh'));
         }
         after(total, () => {
             player.form = next;

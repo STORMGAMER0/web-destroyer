@@ -16,11 +16,6 @@
   "jump_up_2",
   "jump_peak_2",
   "jump_down_2",
-  "idle_3",
-  "run_3",
-  "jump_up_3",
-  "jump_peak_3",
-  "jump_down_3",
   "rh_charge",
   "rh_punch",
   "hg_charge",
@@ -46,23 +41,8 @@
   "jcg_body",
   "bm_body",
   "kc_body",
-  "ry_body",
-  "gs_body",
-  "gs_giant",
-  "rw_spin",
-  "rw_roll",
-  "ga_dash",
-  "ga_giant",
-  "ga_punch",
-  "gh_body",
-  "gh_arm",
-  "hd_body",
-  "hd_head",
-  "hd_end",
-  "bj_body",
   "tf_1",
-  "tf_2",
-  "tf_3"
+  "tf_2"
  ],
  "anims": {
   "idle_0": {
@@ -98,21 +78,6 @@
   "jump_up_2": 4041,
   "jump_peak_2": 4041,
   "jump_down_2": 4044,
-  "idle_3": {
-   "anim": 70000,
-   "loop": true,
-   "range": [
-    0,
-    4
-   ]
-  },
-  "run_3": {
-   "anim": 70020,
-   "loop": true
-  },
-  "jump_up_3": 70041,
-  "jump_peak_3": 70041,
-  "jump_down_3": 70044,
   "charge": {
    "anim": 7400,
    "bake": 0.4
@@ -313,86 +278,6 @@
    "decimate": 3,
    "bake": 0.5
   },
-  "ry_body": 71001,
-  "ry_bolt": {
-   "anim": 87148,
-   "loop": true,
-   "bake": 0.5
-  },
-  "ry_burst": {
-   "anim": 87149,
-   "bake": 0.5
-  },
-  "ry_dome": {
-   "anim": 87146,
-   "bake": 0.6
-  },
-  "ry_wave": {
-   "anim": 87147,
-   "bake": 0.6
-  },
-  "gs_body": 71150,
-  "gs_giant": {
-   "anim": 71151,
-   "timescale": 0.5
-  },
-  "gs_spike": {
-   "anim": 87125,
-   "bake": 0.6
-  },
-  "gs_wave": {
-   "anim": 87140,
-   "bake": 0.6
-  },
-  "cloud": {
-   "anim": 87124,
-   "bake": 0.5
-  },
-  "ring5": {
-   "anim": 87162,
-   "bake": 0.5
-  },
-  "rw_spin": 71170,
-  "rw_roll": 71172,
-  "ga_dash": 71300,
-  "ga_giant": 71302,
-  "ga_punch": 71303,
-  "ga_cloud": {
-   "anim": 87163,
-   "bake": 0.5
-  },
-  "ga_rocks": {
-   "anim": 87165,
-   "bake": 0.5
-  },
-  "ga_flash": {
-   "anim": 87166,
-   "bake": 0.5
-  },
-  "gh_body": 71350,
-  "gh_arm": {
-   "anim": 71351,
-   "range": [
-    0,
-    3
-   ]
-  },
-  "dust_cloud": {
-   "anim": 87150,
-   "bake": 0.6
-  },
-  "ring_v": {
-   "anim": 87129,
-   "bake": 0.5
-  },
-  "hd_body": 71560,
-  "hd_head": 71561,
-  "hd_end": 71563,
-  "streaks": {
-   "anim": 87168,
-   "bake": 0.5
-  },
-  "bj_body": 73000,
   "tf_1": 900,
   "tf_1_line": {
    "anim": 901,
@@ -402,15 +287,6 @@
    "anim": 3999,
    "timescale": 0.65
   },
-  "tf_2_fx": 871,
-  "tf_3": 69999,
-  "tf_3_bolt": {
-   "anim": 552,
-   "bake": 0.25
-  },
-  "tf_3_ring": {
-   "anim": 6070,
-   "bake": 0.3
-  }
+  "tf_2_fx": 871
  }
 }
