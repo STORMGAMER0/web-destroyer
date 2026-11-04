@@ -1,0 +1,197 @@
+{
+ "air": "Ichigo.air",
+ "extra": {
+  "fb": {
+   "char": "Ichigo FinalBankai",
+   "air": "Ichigo FinalBankai.air"
+  }
+ },
+ "pixel": [
+  "idle",
+  "run",
+  "jump_up",
+  "jump_peak",
+  "jump_down",
+  "gt_body",
+  "ra_body",
+  "bc_body",
+  "as_body",
+  "as_end",
+  "fb_body",
+  "fb_end",
+  "ts_body",
+  "ts_end",
+  "fg_charge",
+  "fg_hold",
+  "fg_form",
+  "fg_raise",
+  "fg_swing",
+  "rv_dash",
+  "rv_slash",
+  "rv_pose"
+ ],
+ "anims": {
+  "idle": {
+   "anim": 0,
+   "loop": true
+  },
+  "run": {
+   "anim": 20,
+   "loop": true
+  },
+  "jump_up": 41,
+  "jump_peak": 42,
+  "jump_down": 43,
+  "gt_body": 810,
+  "gt_wave": {
+   "anim": 811,
+   "range": [
+    1,
+    5
+   ],
+   "loop": true
+  },
+  "slash_wave": 10027,
+  "ra_body": 840,
+  "bc_body": {
+   "anim": 910,
+   "timescale": 0.7
+  },
+  "bc_slash": {
+   "anim": 915,
+   "decimate": 2
+  },
+  "as_body": {
+   "anim": 920,
+   "range": [
+    1,
+    3
+   ],
+   "loop": true
+  },
+  "as_end": 921,
+  "as_spark": 922,
+  "as_swirl": {
+   "anim": 923,
+   "loop": true
+  },
+  "fb_body": 930,
+  "fb_end": 931,
+  "fb_line": 932,
+  "fb_aura": 933,
+  "smoke": 8150,
+  "flash": {
+   "anim": 30000,
+   "bake": 0.5
+  },
+  "ts_body": {
+   "anim": 920,
+   "range": [
+    1,
+    3
+   ],
+   "loop": true,
+   "src": "fb"
+  },
+  "ts_end": {
+   "anim": 921,
+   "src": "fb"
+  },
+  "ts_spark": {
+   "anim": 922,
+   "src": "fb"
+  },
+  "ts_swirl": {
+   "anim": 923,
+   "loop": true,
+   "src": "fb"
+  },
+  "fg_charge": {
+   "anim": 1000,
+   "range": [
+    0,
+    3
+   ],
+   "src": "fb"
+  },
+  "fg_hold": {
+   "anim": 1000,
+   "range": [
+    3,
+    5
+   ],
+   "loop": true,
+   "src": "fb"
+  },
+  "fg_form": {
+   "anim": 1001,
+   "loop": true,
+   "src": "fb"
+  },
+  "fg_raise": {
+   "anim": 1002,
+   "src": "fb"
+  },
+  "fg_swing": {
+   "anim": 1003,
+   "range": [
+    0,
+    4
+   ],
+   "src": "fb"
+  },
+  "fg_pillar": {
+   "anim": 8390,
+   "src": "fb",
+   "bake": 0.6
+  },
+  "fg_aura": {
+   "anim": 933,
+   "loop": true,
+   "src": "fb"
+  },
+  "fg_flame": {
+   "anim": 8342,
+   "loop": true,
+   "src": "fb"
+  },
+  "fg_wall": {
+   "anim": 3050,
+   "loop": true,
+   "src": "fb",
+   "bake": 0.7
+  },
+  "fg_dark": {
+   "anim": 30005,
+   "src": "fb",
+   "bake": 0.5
+  },
+  "rv_dash": {
+   "anim": 6750,
+   "src": "fb"
+  },
+  "rv_slash": {
+   "anim": 3030,
+   "src": "fb"
+  },
+  "rv_pose": {
+   "anim": 7000,
+   "range": [
+    2,
+    5
+   ],
+   "timescale": 0.3,
+   "src": "fb"
+  },
+  "rv_cut": {
+   "anim": 415,
+   "src": "fb"
+  },
+  "rv_sparkle": {
+   "anim": 9016,
+   "add": true,
+   "src": "fb",
+   "bake": 0.5
+  }
+ }
+}

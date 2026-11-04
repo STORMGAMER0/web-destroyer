@@ -1,12 +1,16 @@
 # Build trimmed web sprite atlas from extracted SFF sprites + AIR animations.
-# usage: build_atlas.py <char_dir> <sff_out_dir> <keep.json> <out_dir>
-# keep.json: {"air": "<file>.air", "pixel": [names kept lossless], "anims": {name: spec}}
+# usage: build_atlas.py <char_dir> <sff_out_dir> <keep.json> <out_dir> [<id>=<sff_out_dir> ...]
+# keep.json: {"air": "<file>.air", "pixel": [names kept lossless], "anims": {name: spec},
+#             "extra": {<id>: {"char": "<char_dir>", "air": "<file>.air"}}}
+#   "extra" names other MUGEN characters to borrow animations from; each one's extracted sprites
+#   come in as an <id>=<sff_out_dir> argument.
 #   spec = AIR action number, or {"anim": n, "bake": explod scale the game draws it at,
 #          "decimate": keep every Nth frame, "timescale": multiply frame times, "loop": true,
 #          "first": true to use the first of several actions with the same number (default: last),
 #          "add": true for an effect the character blends additively in code (Trans = add) though
 #          its AIR frames aren't marked so,
-#          "range": [a, b] to keep only frames a..b-1 (e.g. a loop at the start of a long action)}
+#          "range": [a, b] to keep only frames a..b-1 (e.g. a loop at the start of a long action),
+#          "src": <id> to take the action from that "extra" character instead}
 import json,re,sys,os,io
 from PIL import Image,ImageChops,ImageMath
 char,src,keepf,out=sys.argv[1:5]
@@ -14,19 +18,29 @@ cfg=json.load(open(keepf))
 specs={name:(v if isinstance(v,dict) else {'anim':v}) for name,v in cfg['anims'].items()}
 PIXEL=set(cfg.get('pixel',[]))
 MAX=2048;PAD=2
-air={};first={};cur=None
-for line in open(os.path.join(char,cfg['air']),encoding='latin-1'):
-    l=line.split(';')[0].strip()
-    m=re.match(r'\[\s*begin\s+action\s+(-?\d+)\s*\]',l,re.I)
-    if m:
-        cur=int(m.group(1)); air[cur]=[]
-        if cur not in first: first[cur]=air[cur]
-        continue
-    p=[x.strip() for x in l.split(',')]
-    if cur is not None and len(p)>=5 and all(re.match(r'-?\d+$',x) for x in p[:5]):
-        air[cur].append(dict(g=int(p[0]),i=int(p[1]),x=int(p[2]),y=int(p[3]),t=int(p[4]),
-                             flip=(p[5] if len(p)>5 else '').upper(),add=len(p)>6 and p[6].upper().startswith('A')))
-idx=json.load(open(os.path.join(src,'_index.json')))
+def read_air(path):
+    air={};first={};cur=None
+    for line in open(path,encoding='latin-1'):
+        l=line.split(';')[0].strip()
+        m=re.match(r'\[\s*begin\s+action\s+(-?\d+)\s*\]',l,re.I)
+        if m:
+            cur=int(m.group(1)); air[cur]=[]
+            if cur not in first: first[cur]=air[cur]
+            continue
+        p=[x.strip() for x in l.split(',')]
+        if cur is not None and len(p)>=5 and all(re.match(r'-?\d+$',x) for x in p[:5]):
+            air[cur].append(dict(g=int(p[0]),i=int(p[1]),x=int(p[2]),y=int(p[3]),t=int(p[4]),
+                                 flip=(p[5] if len(p)>5 else '').upper(),add=len(p)>6 and p[6].upper().startswith('A')))
+    return air,first
+# A source: its AIR actions, its extracted sprites and their axes, and the prefix its sprite keys
+# get in the atlas (none for the character's own)
+def source(char,airf,src,prefix):
+    air,first=read_air(os.path.join(char,airf))
+    return {'air':air,'first':first,'dir':src,'idx':json.load(open(os.path.join(src,'_index.json'))),'prefix':prefix}
+sources={None:source(char,cfg['air'],src,'')}
+dirs=dict(a.split('=',1) for a in sys.argv[5:])
+for sid,e in cfg.get('extra',{}).items():
+    sources[sid]=source(e['char'],e['air'],dirs[sid],sid+':')
 sprites={};anims={}
 def additive_to_alpha(im):
     # MUGEN adds these onto the screen (black = nothing). Our canvas floats over the page with
@@ -36,20 +50,20 @@ def additive_to_alpha(im):
     un=lambda c: ImageMath.lambda_eval(lambda e: e['c']*255/e['max'](e['a'],1),c=c,a=a).convert('L')
     a=a.point(lambda v: 0 if v<=8 else v)
     return Image.merge('RGBA',(un(r),un(g),un(b),a))
-def load(key,scale,add):
-    sk=f'{key}@{scale}'
+def load(S,key,scale,add):
+    sk=f"{S['prefix']}{key}@{scale}"
     if sk in sprites: return sk
-    im=Image.open(os.path.join(src,key+'.png')).convert('RGBA')
+    im=Image.open(os.path.join(S['dir'],key+'.png')).convert('RGBA')
     if add: im=additive_to_alpha(im)
     bb=im.getbbox() or (0,0,1,1)
-    im=im.crop(bb);ax=idx[key]['ax']-bb[0];ay=idx[key]['ay']-bb[1]
+    im=im.crop(bb);ax=S['idx'][key]['ax']-bb[0];ay=S['idx'][key]['ay']-bb[1]
     if scale!=1:
         im=im.resize((max(1,round(im.width*scale)),max(1,round(im.height*scale))),Image.LANCZOS);ax*=scale;ay*=scale
     sprites[sk]={'img':im,'ax':round(ax),'ay':round(ay)}
     return sk
 for name,spec in specs.items():
-    a=spec['anim']
-    fr=[f for f in (first if spec.get('first') else air)[a] if f['g']>=0 and f"{f['g']}_{f['i']}" in idx]
+    a=spec['anim'];S=sources[spec.get('src')]
+    fr=[f for f in S['first' if spec.get('first') else 'air'][a] if f['g']>=0 and f"{f['g']}_{f['i']}" in S['idx']]
     if 'range' in spec: fr=fr[spec['range'][0]:spec['range'][1]]
     n=spec.get('decimate',1)
     if n>1: fr=[dict(f,t=f['t']*n) for f in fr[::n]]
@@ -60,7 +74,7 @@ for name,spec in specs.items():
     # frames (a body that flashes, say) marks each glowing frame with "a" instead
     add=force or all(f['add'] for f in fr)
     anims[name]={'loop':bool(spec.get('loop')),'blend':'add' if add else None,
-        'frames':[dict({'s':load(f"{f['g']}_{f['i']}",s,f['add'] or force),'t':max(f['t'],1),'x':round(f['x']*s),'y':round(f['y']*s),'flip':f['flip']},
+        'frames':[dict({'s':load(S,f"{f['g']}_{f['i']}",s,f['add'] or force),'t':max(f['t'],1),'x':round(f['x']*s),'y':round(f['y']*s),'flip':f['flip']},
                        **({'a':1} if f['add'] and not add else {})) for f in fr]}
 # The character's own pixel-art frames stay lossless; big painted effects use lossy WebP (much smaller)
 pixel_keys={f['s'] for n in PIXEL if n in anims for f in anims[n]['frames']}

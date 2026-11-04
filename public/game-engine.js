@@ -100,7 +100,7 @@
     // character files: sprites keep their real axis (feet / center point) and
     // anims keep MUGEN frame timing (ticks at 60 per second).
     // Which character to play: ?char=sasuke on the page URL (Naruto when missing or unknown)
-    const CHARACTERS = ['naruto', 'sasuke', 'goku', 'luffy', 'natsu'];
+    const CHARACTERS = ['naruto', 'sasuke', 'goku', 'luffy', 'natsu', 'ichigo'];
     // Characters with transformations: form names in the order the transform key cycles them
     const FORMS = {
         goku: ['Base', 'Super Saiyan', 'Super Saiyan 2', 'Super Saiyan 3', 'Super Saiyan God',
@@ -1823,6 +1823,15 @@
         { name: 'Black Mamba', cast: castBlackMamba, forms: [2] },
         { name: 'King Cobra', cast: castKingCobra, forms: [2] }
     ];
+    ROSTER.ichigo = [
+        { name: 'Getsuga Tenshou', cast: castGetsuga },
+        { name: 'Rapid Bankai Combo', cast: castBankaiCombo },
+        { name: 'Air Bankai Slice', cast: castAirBankaiSlice },
+        { name: 'Final Bankai Slash', cast: castFinalBankaiSlash },
+        { name: '1000 Slice', cast: castThousandSlice },
+        { name: 'Final Getsuga Tenshou', cast: castFinalGetsuga },
+        { name: 'Bankai Rave', cast: castBankaiRave }
+    ];
     ROSTER.natsu = [
         { name: "Fire Dragon's Iron Fist", cast: castIronFist },
         { name: "Fire Dragon's Brilliant Flame", cast: castBrilliantFlame },
@@ -3114,6 +3123,315 @@
             endCast();
             setPlayerAnim('idle');
         });
+    }
+
+    // ---------------- Ichigo ----------------
+    // The anime Bankai Ichigo, with three moves (and their sprites and sounds) borrowed from the
+    // Final Bankai Ichigo: 1000 Slice, Final Getsuga Tenshou and Bankai Rave.
+
+    const GETSUGA = ['#ffffff', '#4dd0e1', '#263238'];
+    const DARK = ['#212121', '#b71c1c', '#ffffff'];
+
+    // His sword hand, out in front at chest height
+    function ichigoBlade(reach = 40) {
+        return [player.x + reach * player.direction, player.y - 45];
+    }
+
+    // A flash step: he dashes through (tx, ty) in a straight line, his sword cutting a groove of
+    // half-width w behind him; onArrive when he's through
+    function slashDash(tx, ty, reach, w, onArrive) {
+        const blade = () => [player.x + 20 * player.direction, player.y - 40];
+        let last = blade();
+        const cut = () => {
+            const [x, y] = blade();
+            if (Math.hypot(x - last[0], y - last[1]) < 4) return;
+            cutGroove(last[0], last[1], x, y, w);
+            last = [x, y];
+        };
+        dashAt(tx, ty, reach, i => { if (i % 2 === 0) cut(); }, () => { cut(); onArrive(); });
+    }
+
+    // A wave of energy flies from (sx, sy) to the cursor, carving a groove of half-width w as it
+    // goes; trail spawns an effect along the way; onHit(x, y) where it lands
+    function getsugaWave(sx, sy, tx, ty, { anim, scale, speed, w, trail = null, trailScale = 1, onHit }) {
+        launch(sx, sy, tx, ty, speed, [{ name: anim, scale, aim: 0 }], onHit);
+        const d = Math.hypot(tx - sx, ty - sy) || 1;
+        const ticks = Math.max(1, Math.floor(d / speed));
+        let last = [sx, sy];
+        for (let t = 2; t <= ticks; t += 2) {
+            after(t, () => {
+                const k = t * speed / d;
+                const x = sx + (tx - sx) * k, y = sy + (ty - sy) * k;
+                cutGroove(last[0], last[1], x, y, w);
+                if (trail && t % 4 === 0) spawnEffect(trail, x, y, { centered: true, scale: trailScale, rotation: Math.random() * Math.PI * 2 });
+                last = [x, y];
+            });
+        }
+        after(ticks, () => cutGroove(last[0], last[1], tx, ty, w));
+    }
+
+    // [1] Getsuga Tenshou: one swing sends a crescent of energy flying at the cursor
+    function castGetsuga(tx, ty) {
+        faceTarget(tx);
+        startCast('gt_body');
+        playSound('gt_voice');
+        // gt_body's swing comes on its third frame
+        after(12, () => {
+            const [x, y] = ichigoBlade(30);
+            playSound('swing', { volume: 0.8 });
+            spawnEffect('slash_wave', player.x, player.y, { facing: player.direction, scale: 0.8 });
+            getsugaWave(x, y, tx, ty, {
+                anim: 'gt_wave', scale: 0.9, speed: 13, w: 16,
+                onHit: (hx, hy) => {
+                    const v = Math.max(0.4, nearVolume(hx, hy));
+                    playSound('boom', { volume: v });
+                    spawnEffect('slash_wave', hx, hy + 40, { scale: 1.4, facing: player.direction });
+                    createExplosion(hx, hy, { radius: 200, colors: GETSUGA, smoke: 0.4 });
+                    startShockwave(hx, hy, 320, 10);
+                }
+            });
+        });
+        finishAt(40);
+    }
+
+    // [3] Air Bankai Slice: he spins in place over the cursor, slashing it to ribbons, then drops
+    // out of it
+    function castAirBankaiSlice(tx, ty) {
+        faceTarget(tx);
+        startCast('jump_up');
+        playSound('as_voice');
+        playSound('jump');
+        const dir = player.direction;
+        dashAt(tx - 60 * dir, ty - 70, 600, () => {}, () => {
+            player.floatTicks = 100;
+            setPlayerAnim('as_body');
+            playSound('super', { volume: 0.5 });
+            spawnEffect('as_swirl', tx, ty, { centered: true, scale: 2.2, life: 100, fade: 15 });
+            for (let t = 0; t < 96; t += 4) {
+                after(t, () => {
+                    const a = Math.random() * Math.PI, len = 60 + Math.random() * 90;
+                    const x = tx + (Math.random() - 0.5) * 120, y = ty + (Math.random() - 0.5) * 100;
+                    cutGroove(x - Math.cos(a) * len, y - Math.sin(a) * len, x + Math.cos(a) * len, y + Math.sin(a) * len, 7);
+                    spawnEffect('as_spark', x, y, { centered: true, scale: 1.5 });
+                    if (t % 8 === 0) playSound(t % 16 ? 'swing' : 'hit', { volume: 0.5 * Math.max(0.3, nearVolume(x, y)), minGap: 0 });
+                });
+            }
+            after(100, () => {
+                setPlayerAnim('as_end');
+                const v = Math.max(0.5, nearVolume(tx, ty));
+                playSound('boom', { volume: v });
+                createExplosion(tx, ty, { radius: 260, colors: GETSUGA, smoke: 0.5 });
+                startShockwave(tx, ty, 420, 12);
+            });
+            finishAt(125);
+        });
+    }
+
+    // [2] Rapid Bankai Combo: he flash-steps in and lays into the cursor with a long combo
+    function castBankaiCombo(tx, ty) {
+        faceTarget(tx);
+        startCast('ra_body');
+        playSound('bc_voice');
+        playSound('super', { volume: 0.5 });
+        dashAt(tx - 50 * player.direction, ty, 600, () => {}, () => {
+            player.floatTicks = 175;
+            setPlayerAnim('bc_body');
+            const [cx, cy] = ichigoBlade(60);
+            for (let t = 6; t < 160; t += 8) {
+                after(t, () => {
+                    const x = cx + (Math.random() - 0.3) * 90 * player.direction, y = cy + (Math.random() - 0.5) * 90;
+                    const a = Math.random() * Math.PI, len = 40 + Math.random() * 50;
+                    cutGroove(x - Math.cos(a) * len, y - Math.sin(a) * len, x + Math.cos(a) * len, y + Math.sin(a) * len, 8);
+                    spawnEffect('bc_slash', x, y, { centered: true, scale: 0.9, rotation: a });
+                    createExplosion(x, y, { radius: 55 + Math.random() * 30, colors: GETSUGA, smoke: 0.1 });
+                    playSound(t % 16 ? 'swing' : 'hit', { volume: 0.5 * Math.max(0.3, nearVolume(x, y)), minGap: 0 });
+                });
+            }
+            after(165, () => {
+                const v = Math.max(0.5, nearVolume(cx, cy));
+                playSound('hit2', { volume: v });
+                playSound('boom', { volume: v });
+                spawnEffect('flash', cx, cy, { centered: true, scale: 1.5 });
+                createExplosion(cx, cy, { radius: 270, colors: GETSUGA, smoke: 0.5 });
+                startShockwave(cx, cy, 420, 12);
+            });
+            finishAt(185);
+        });
+    }
+
+    // [4] Final Bankai Slash: blue power flares around him, he flash-steps past the cursor, and
+    // a moment later the page splits along one long cut
+    function castFinalBankaiSlash(tx, ty) {
+        faceTarget(tx);
+        startCast('fb_body');
+        playSound('fb_voice');
+        playSound('super', { volume: 0.6 });
+        const dir = player.direction;
+        spawnEffect('fb_aura', player.x, player.y + 10, { scale: 1.3, behind: true });
+        // fb_body flashes through its charge for 60 ticks before he goes
+        after(60, () => {
+            playSound('dash');
+            playSound('slash', { volume: 0.8 });
+            spawnEffect('smoke', player.x, player.y - 40, { centered: true, scale: 1.2 });
+            dashAt(tx + 160 * dir, ty, 800, () => {}, () => {
+                setPlayerAnim('fb_end');
+                player.floatTicks = 70;
+                // The cut: a line across the cursor, then it all comes apart along it
+                after(18, () => {
+                    playSound('swing2');
+                    spawnEffect('fb_line', tx, ty, { centered: true, scale: 3, stretchX: 2, life: 25, fade: 10 });
+                });
+                after(30, () => {
+                    const v = Math.max(0.6, nearVolume(tx, ty));
+                    playSound('boom', { volume: v });
+                    playSound('boom2', { volume: v });
+                    cutGroove(tx - 520, ty, tx + 520, ty, 22);
+                    for (let k = -4; k <= 4; k++) {
+                        after(Math.abs(k) * 2, () => createExplosion(tx + k * 120, ty, { radius: 110, colors: GETSUGA, smoke: 0.15 }));
+                    }
+                    createExplosion(tx, ty, { radius: 260, colors: GETSUGA, smoke: 0.5 });
+                    startShockwave(tx, ty, 600, 15);
+                });
+                finishAt(70);
+            });
+        });
+    }
+
+    // ---- From the Final Bankai Ichigo
+
+    // [5] 1000 Slice: he flash-steps in and the air around the cursor is cut to pieces
+    function castThousandSlice(tx, ty) {
+        faceTarget(tx);
+        startCast('ts_body');
+        playSound('super', { volume: 0.6 });
+        playSound('dash');
+        dashAt(tx - 70 * player.direction, ty, 600, () => {}, () => {
+            player.floatTicks = 110;
+            spawnEffect('ts_swirl', tx, ty, { centered: true, scale: 2.4, life: 100, fade: 15 });
+            for (let t = 0; t < 96; t += 3) {
+                after(t, () => {
+                    const a = Math.random() * Math.PI, len = 50 + Math.random() * 110;
+                    const x = tx + (Math.random() - 0.5) * 220, y = ty + (Math.random() - 0.5) * 180;
+                    cutGroove(x - Math.cos(a) * len, y - Math.sin(a) * len, x + Math.cos(a) * len, y + Math.sin(a) * len, 5);
+                    spawnEffect('ts_spark', x, y, { centered: true, scale: 1.4 });
+                    if (t % 6 === 0) playSound(t % 12 ? 'swing' : 'whoosh', { volume: 0.5 * Math.max(0.3, nearVolume(x, y)), minGap: 0 });
+                });
+            }
+            after(100, () => {
+                setPlayerAnim('ts_end');
+                const v = Math.max(0.5, nearVolume(tx, ty));
+                playSound('boom', { volume: v });
+                playSound('hit', { volume: v });
+                createExplosion(tx, ty, { radius: 280, colors: GETSUGA, smoke: 0.5 });
+                startShockwave(tx, ty, 440, 13);
+            });
+            finishAt(120);
+        });
+    }
+
+    // [6] Final Getsuga Tenshou: black power erupts from him in a pillar, he becomes Mugetsu,
+    // raises his sword and brings down a wall of black flame that tears through everything ahead
+    function castFinalGetsuga(tx, ty) {
+        faceTarget(tx);
+        startCast('fg_charge');
+        playSound('fg_voice');
+        after(15, () => setPlayerAnim('fg_hold'));
+        spawnEffect('fg_dark', player.x, player.y - 60, { centered: true, scale: 1.4, behind: true });
+        // The pillar, and he changes inside it
+        after(45, () => {
+            playSound('fg_pillar');
+            playSound('boom', { volume: 0.8 });
+            spawnEffect('fg_pillar', player.x, player.y + 30, { scale: 2.2 });
+            createExplosion(player.x, player.y - 60, { radius: 150, colors: DARK, smoke: 0.4 });
+            startShockwave(player.x, player.y - 60, 420, 12);
+        });
+        after(75, () => {
+            setPlayerAnim('fg_form');
+            playSound('fg_form');
+            spawnEffect('fg_aura', player.x, player.y + 10, { scale: 1.6, behind: true, life: 130, fade: 20 });
+            spawnEffect('fg_flame', player.x, player.y + 10, { scale: 1.4, behind: true, life: 130, fade: 20 });
+        });
+        after(135, () => { setPlayerAnim('fg_raise'); playSound('fg_shout'); });
+        // fg_raise holds the sword up 49 ticks in; then the swing
+        after(195, () => {
+            player.anim = createAnim('fg_swing');
+            playSound('fg_swing');
+            playSound('fg_shout2');
+            const dir = player.direction;
+            const sx = player.x + 60 * dir, sy = player.y - 30;
+            const d = Math.hypot(tx - sx, ty - sy) || 1;
+            const ex = sx + (tx - sx) / d * Math.max(d, 500), ey = sy + (ty - sy) / d * Math.max(d, 500);
+            const steps = 16;
+            // The wall of black flame rolls out to the cursor and past it
+            const wall = spawnEffect('fg_wall', sx, sy, { centered: true, scale: 2.4, facing: dir, life: steps * 3 + 20, fade: 15 });
+            let last = [sx, sy];
+            for (let k = 1; k <= steps; k++) {
+                after(k * 3, () => {
+                    const t = k / steps;
+                    const x = sx + (ex - sx) * t, y = sy + (ey - sy) * t;
+                    wall.x = x; wall.y = y;
+                    cutGroove(last[0], last[1], x, y, 70);
+                    if (k % 2 === 0) createExplosion(x, y, { radius: 150, colors: DARK, smoke: 0.2 });
+                    if (k % 4 === 0) playSound('boom', { volume: 0.6 * Math.max(0.3, nearVolume(x, y)), minGap: 0 });
+                    last = [x, y];
+                });
+            }
+            after(steps * 3 + 2, () => {
+                const v = Math.max(0.6, nearVolume(ex, ey));
+                playSound('fg_pillar', { volume: v });
+                playSound('boom', { volume: v });
+                spawnEffect('fg_pillar', ex, ey + 60, { scale: 2.6 });
+                createExplosion(ex, ey, { radius: 460, colors: DARK, smoke: 0.7 });
+                startShockwave(ex, ey, 750, 18);
+            });
+        });
+        after(280, () => setPlayerAnim('idle'));
+        finishAt(290);
+    }
+
+    // [7] Bankai (Rave): he flash-steps back and forth through the cursor, cutting it each time,
+    // then strikes a pose as it all goes up
+    function castBankaiRave(tx, ty) {
+        faceTarget(tx);
+        startCast('rv_dash');
+        playSound('rv_voice');
+        playSound('super', { volume: 0.6 });
+        const passes = 4;
+        const pass = k => {
+            if (k === passes) return finale();
+            const side = player.x < tx ? 1 : -1;
+            player.direction = side;
+            player.anim = createAnim('rv_dash');
+            playSound('dash', { volume: 0.7 });
+            playSound('rv_slash', { volume: 0.6 });
+            const a = (Math.random() - 0.5) * 0.8;
+            slashDash(tx + side * 170, ty + Math.sin(a) * 120, 700, 10, () => {
+                const v = Math.max(0.4, nearVolume(tx, ty));
+                playSound(k % 2 ? 'rv_hit' : 'rv_hit2', { volume: v });
+                spawnEffect('rv_cut', tx, ty, { centered: true, scale: 2, rotation: a, facing: side });
+                createExplosion(tx, ty, { radius: 90 + k * 25, colors: GETSUGA, smoke: 0.15 });
+                after(8, () => pass(k + 1));
+            });
+        };
+        const finale = () => {
+            player.floatTicks = 60;
+            faceTarget(tx);
+            setPlayerAnim('rv_pose');
+            playSound('rv_end');
+            playSound('rv_end2');
+            spawnEffect('rv_sparkle', tx, ty, { centered: true, scale: 2.4 });
+            after(20, () => {
+                const v = Math.max(0.6, nearVolume(tx, ty));
+                playSound('rv_fin', { volume: v });
+                playSound('boom', { volume: v });
+                cutGroove(tx - 260, ty - 200, tx + 260, ty + 200, 16);
+                cutGroove(tx - 260, ty + 200, tx + 260, ty - 200, 16);
+                createExplosion(tx, ty, { radius: 330, colors: GETSUGA, smoke: 0.5 });
+                startShockwave(tx, ty, 520, 15);
+            });
+            finishAt(60);
+        };
+        after(8, () => pass(0));
     }
 
     // ---------------- Natsu ----------------
