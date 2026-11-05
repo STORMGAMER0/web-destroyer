@@ -531,7 +531,35 @@
             .sound input { flex: 1; accent-color: #ff9800; cursor: pointer; }
             .keys { color: #d8d0ee; font-weight: 500; }
             .keys b { color: #fff; }
+            .menu { display: block; width: 100%; margin-top: 12px; background: #ffffff14; color: #fff;
+                    border: 1px solid #ffffff2a; border-radius: 5px; padding: 7px; cursor: pointer; }
+            .menu:hover, .row button:hover, .sound button:hover { border-color: #ffffff66; }
+            /* Controls window shown when the game starts (fixed, so it centres on the screen) */
+            .help { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+                    width: min(380px, calc(100vw - 32px)); background: rgba(20, 12, 36, 0.96); color: #fff;
+                    border: 1px solid #ffffff44; border-radius: 12px; padding: 18px 20px 16px;
+                    box-shadow: 0 12px 40px #0009; }
+            .help[hidden] { display: none; }
+            .help h3 { margin: 0 0 12px; font-size: 15px; color: #ffb74d; }
+            .help table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+            .help td { padding: 4px 0; font-weight: 500; color: #d8d0ee; vertical-align: top; }
+            .help td:first-child { color: #fff; font-weight: 700; padding-right: 14px; white-space: nowrap; }
+            .help .close { display: block; width: 100%; background: #ff9800; color: #000; border: 0;
+                           border-radius: 6px; padding: 9px; cursor: pointer; font-weight: 700; }
         </style>
+        <div class="help" role="dialog" aria-label="Controls">
+            <h3>Controls</h3>
+            <table>
+                <tr><td>A / D</td><td>Run</td></tr>
+                <tr><td>W / Space</td><td>Jump (hold to fly)</td></tr>
+                <tr><td>S</td><td>Drop through a ledge</td></tr>
+                <tr><td>1 – 9 / wheel</td><td>Pick a move (listed top left)</td></tr>
+                <tr><td>Click</td><td>Use the move at the cursor</td></tr>
+                ${FORMS[CHAR_ID] ? '<tr><td>T</td><td>Transform</td></tr>' : ''}
+                <tr><td>⚙ Settings</td><td>Sound, background, main menu</td></tr>
+            </table>
+            <button class="close">Close</button>
+        </div>
         <button class="gear" part="gear">⚙ Settings</button>
         <div class="panel" hidden>
             <h4>Background</h4>
@@ -547,8 +575,16 @@
                 <b>S</b> drop through · <b>Number keys</b> jutsu · <b>Click</b> fire<br>
                 <b>T</b> transform (characters with forms)
             </div>
+            <button class="menu" id="menu">⟵ Main menu</button>
         </div>`;
     const panel = ui.querySelector('.panel');
+    // Back to the character and website picker
+    ui.querySelector('#menu').addEventListener('click', () => { location.href = ENGINE_ORIGIN + '/'; });
+    // The controls window: shown once at the start, closed with its button or Escape
+    const help = ui.querySelector('.help');
+    const closeHelp = () => { help.hidden = true; };
+    ui.querySelector('.close').addEventListener('click', closeHelp);
+    window.addEventListener('keydown', e => { if (e.key === 'Escape' && !help.hidden) closeHelp(); });
     ui.querySelector('.gear').addEventListener('click', () => { panel.hidden = !panel.hidden; });
     const bgRow = ui.querySelector('#bgs');
     for (const name of Object.keys(BACKGROUNDS)) {
@@ -922,6 +958,35 @@
                 if (d < sp.w) r = Math.max(r, R * 0.25 + (sp.len * R - R * 0.25) * (1 - d / sp.w));
             }
             c.rim[i] = r;
+        }
+        rimBounds(c);
+        return openCrater(c, x - R, y - R, x + R, y + R);
+    }
+
+    // A jagged star bursting out every way: `points` points of uneven length and spacing, the
+    // longest reaching R, with notches of uneven depth between them, joined by straight edges
+    function addStar(x, y, R, points) {
+        const c = { x, y, R, soot: 7, age: 0, burn: 200 + Math.random() * 200, clean: true };
+        // Corners going round: point, notch, point, notch... (angle, distance from the centre)
+        const step = Math.PI * 2 / points, rot = Math.random() * step;
+        const verts = [];
+        for (let k = 0; k < points; k++) {
+            // Jitter kept small enough that the corners stay in order round the circle
+            const a = rot + k * step + (Math.random() - 0.5) * step * 0.3;
+            verts.push({ a, r: R * (0.5 + Math.random() * 0.5) });
+            verts.push({ a: a + step * (0.3 + Math.random() * 0.25), r: R * (0.22 + Math.random() * 0.16) });
+        }
+        c.rim = new Float32Array(RIM_STEPS);
+        for (let i = 0; i < RIM_STEPS; i++) {
+            const a = i / RIM_STEPS * Math.PI * 2 - Math.PI;
+            // The edge whose corners this angle falls between
+            const phi = ((a - verts[0].a) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+            let j = 0;
+            while (j < verts.length - 1 && verts[j + 1].a - verts[0].a <= phi) j++;
+            const p = verts[j], q = verts[(j + 1) % verts.length];
+            const a1 = p.a - verts[0].a, a2 = j + 1 < verts.length ? q.a - verts[0].a : Math.PI * 2;
+            // Where the ray meets the straight edge between the two corners
+            c.rim[i] = p.r * q.r * Math.sin(a2 - a1) / (p.r * Math.sin(phi - a1) + q.r * Math.sin(a2 - phi));
         }
         rimBounds(c);
         return openCrater(c, x - R, y - R, x + R, y + R);
@@ -1606,34 +1671,29 @@
             const m = o.mask, mw = m.width, mh = m.height;
             const g = m.getContext('2d');
             const img = g.getImageData(0, 0, mw, mh);
-            const cos = Math.cos(o.rot), sin = Math.sin(o.rot);
-            const bitten = [];
-            let left = 0;
+            const bitten = [], kept = [];
             for (let j = 0; j < mh; j++) {
                 for (let k = 0; k < mw; k++) {
                     const p = (j * mw + k) * 4 + 3;
                     if (!img.data[p]) continue;
-                    const lx = (k + 0.5) / mw * o.w - o.w / 2, ly = (j + 0.5) / mh * o.h - o.h / 2;
-                    const wx = o.x + lx * cos - ly * sin, wy = o.y + lx * sin + ly * cos;
+                    // A cell of the mask, from the element's centre; the whole mask covers the
+                    // element even when this piece holds only part of it
+                    const lx = (k + 0.5) / mw * o.ew - o.ew / 2, ly = (j + 0.5) / mh * o.eh - o.eh / 2;
+                    const [wx, wy] = blockPoint(o, lx, ly);
+                    const cell = [wx, wy, o.ecx + lx, o.ecy + ly];
                     if (craterField(wx, wy, [c]).f < 0) {
                         img.data[p] = 0;
-                        bitten.push([wx, wy, o.ox + lx, o.oy + ly]);
-                    } else left++;
+                        bitten.push(cell);
+                    } else kept.push(cell);
                 }
             }
             if (!bitten.length) continue;
-            const area = bitten.length * (o.w / mw) * (o.h / mh);
-            const shatter = left < (left + bitten.length) * 0.15;
+            const cellArea = (o.ew / mw) * (o.eh / mh);
+            const area = bitten.length * cellArea;
+            const shatter = kept.length < (kept.length + bitten.length) * 0.15;
             // Shattering tears up what's left too
-            let pieces = bitten;
-            if (shatter) {
-                pieces = [];
-                for (let j = 0; j < mh; j++) for (let k = 0; k < mw; k++) {
-                    const lx = (k + 0.5) / mw * o.w - o.w / 2, ly = (j + 0.5) / mh * o.h - o.h / 2;
-                    pieces.push([o.x + lx * cos - ly * sin, o.y + lx * sin + ly * cos, o.ox + lx, o.oy + ly]);
-                }
-            }
-            const total = shatter ? o.w * o.h : area;
+            const pieces = shatter ? bitten.concat(kept) : bitten;
+            const total = shatter ? pieces.length * cellArea : area;
             const count = Math.min(14, Math.ceil(total / 450));
             const size = Math.min(Math.sqrt(total / count) * 1.3, 8 + (c.w || c.R) * 0.4);
             for (let n = 0; n < count; n++) {
@@ -1649,8 +1709,11 @@
             }
             g.putImageData(img, 0, 0);
             applyMask(o.el, m);
-            settle(o, false);
+            // The bite may have cut it in two: refit (pieces split off land at the end of the
+            // list, past this loop)
+            refitBlock(o, c.x, c.y);
         }
+        trimBlocks();
     }
 
     // Every card's styles are read before the page is changed at all: reading styles after a
@@ -1698,18 +1761,141 @@
         const a = Math.atan2(y - cy, x - cx);
         const heavy = 1 + (r.width * r.height) / 6000;
         const hw = r.width / 2, hh = r.height / 2;
-        blocks.push(Object.assign(block, {
+        // (ecx, ecy) is where the element's centre was on the page and ew x eh its size; the
+        // piece turns about its pivot (px, py), measured from that centre, which sits at (x, y)
+        // now and sat at (ox, oy) on the page. refitBlock moves the pivot to the middle of what's
+        // left of the card, and splits off any part the blast cut free.
+        const o = Object.assign(block, {
             el: copy, base: base === 'none' ? '' : ' ' + base,
+            ecx: x, ecy: y, ew: r.width, eh: r.height, px: 0, py: 0,
             x, y, ox: x, oy: y, heavy, w: r.width, h: r.height, mask, image,
             pts: [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]],
             vx: Math.cos(a) * (2 + Math.random() * 3) / Math.sqrt(heavy),
             vy: Math.sin(a) * 2 - 3 - Math.random() * 2,
             rot: 0, vr: (Math.random() - 0.5) * 0.12 / Math.sqrt(heavy),
             resting: false, shown: ''
-        }));
+        });
+        blocks.push(o);
+        refitBlock(o, cx, cy);
+        trimBlocks();
+    }
+
+    function trimBlocks() {
         if (blocks.length > MAX_BLOCKS) {
             for (const old of blocks.splice(0, blocks.length - MAX_BLOCKS)) old.el.remove();
         }
+    }
+
+    // Where a point of the card (measured from the element's centre) is in the world now
+    function blockPoint(o, lx, ly) {
+        const cos = Math.cos(o.rot), sin = Math.sin(o.rot);
+        const dx = lx - o.px, dy = ly - o.py;
+        return [o.x + dx * cos - dy * sin, o.y + dx * sin + dy * cos];
+    }
+
+    // Move a piece's pivot to (px, py) without moving the piece
+    function setPivot(o, px, py) {
+        [o.x, o.y] = blockPoint(o, px, py);
+        o.px = px; o.py = py;
+        o.ox = o.ecx + px; o.oy = o.ecy + py;
+        o.el.style.setProperty('transform-origin', `${(o.ew / 2 + px).toFixed(1)}px ${(o.eh / 2 + py).toFixed(1)}px`, 'important');
+        o.shown = '';
+    }
+
+    // Fit a card's physics to what the blasts have left of it. Each part of it no longer joined
+    // to the rest (going by its mask) becomes a piece of its own, flying apart from (cx, cy); each
+    // piece is as big, as heavy and turns about the middle of only what it holds. Crumbs too
+    // small to matter are dropped. Returns false if nothing of the card is left.
+    function refitBlock(o, cx, cy) {
+        const m = o.mask, mw = m.width, mh = m.height;
+        const g = m.getContext('2d');
+        const img = g.getImageData(0, 0, mw, mh);
+        const d = img.data;
+        // Label the joined parts (pixels touching side by side)
+        const label = new Int32Array(mw * mh).fill(-1);
+        const parts = [];
+        const stack = [];
+        for (let s = 0; s < mw * mh; s++) {
+            if (!d[s * 4 + 3] || label[s] >= 0) continue;
+            const part = { id: parts.length, n: 0, k0: mw, k1: 0, j0: mh, j1: 0 };
+            label[s] = part.id;
+            stack.push(s);
+            while (stack.length) {
+                const p = stack.pop();
+                const k = p % mw, j = (p - k) / mw;
+                part.n++;
+                if (k < part.k0) part.k0 = k;
+                if (k > part.k1) part.k1 = k;
+                if (j < part.j0) part.j0 = j;
+                if (j > part.j1) part.j1 = j;
+                for (const q of [k > 0 ? p - 1 : -1, k < mw - 1 ? p + 1 : -1, j > 0 ? p - mw : -1, j < mh - 1 ? p + mw : -1]) {
+                    if (q >= 0 && d[q * 4 + 3] && label[q] < 0) { label[q] = part.id; stack.push(q); }
+                }
+            }
+            parts.push(part);
+        }
+        const total = parts.reduce((t, p) => t + p.n, 0);
+        const keep = parts.filter(p => p.n >= Math.max(3, total * 0.03)).sort((a, b) => b.n - a.n);
+        if (!keep.length) {
+            o.el.remove();
+            blocks.splice(blocks.indexOf(o), 1);
+            rubbleDirty = true;
+            return false;
+        }
+        const cellW = o.ew / mw, cellH = o.eh / mh;
+        // A mask holding only one part
+        const maskOf = part => {
+            const c = document.createElement('canvas');
+            c.width = mw; c.height = mh;
+            const cg = c.getContext('2d', { willReadFrequently: true });
+            const out = new ImageData(mw, mh);
+            for (let p = 0; p < mw * mh; p++) if (label[p] === part.id) out.data[p * 4 + 3] = 255;
+            cg.putImageData(out, 0, 0);
+            return c;
+        };
+        // Size, weight, pivot and outline of a piece holding `part`
+        const fit = (b, part) => {
+            const x0 = part.k0 * cellW - o.ew / 2, x1 = (part.k1 + 1) * cellW - o.ew / 2;
+            const y0 = part.j0 * cellH - o.eh / 2, y1 = (part.j1 + 1) * cellH - o.eh / 2;
+            setPivot(b, (x0 + x1) / 2, (y0 + y1) / 2);
+            b.w = x1 - x0; b.h = y1 - y0;
+            const hw = b.w / 2, hh = b.h / 2;
+            b.pts = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]];
+            b.heavy = 1 + part.n * cellW * cellH / 6000;
+        };
+        // Pieces fly apart: each gets a push away from the blast, beyond what the card had
+        const kick = b => {
+            const a = Math.atan2(b.y - cy, b.x - cx);
+            const k = 1.5 / Math.sqrt(b.heavy);
+            b.vx += Math.cos(a) * k;
+            b.vy += Math.sin(a) * k - 0.5;
+            b.vr += (Math.random() - 0.5) * 0.1;
+        };
+        const split = keep.length > 1 || keep[0].n < total;
+        for (const part of keep.slice(1)) {
+            const el = o.el.cloneNode(true);
+            debrisLayer.appendChild(el);
+            const b = {
+                el, base: o.base, color: o.color, image: o.image,
+                ecx: o.ecx, ecy: o.ecy, ew: o.ew, eh: o.eh, px: o.px, py: o.py,
+                x: o.x, y: o.y, ox: o.ox, oy: o.oy, rot: o.rot,
+                vx: o.vx, vy: o.vy, vr: o.vr, resting: false, shown: ''
+            };
+            b.mask = maskOf(part);
+            applyMask(el, b.mask);
+            fit(b, part);
+            kick(b);
+            blocks.push(b);
+        }
+        if (split) {
+            o.mask = maskOf(keep[0]);
+            applyMask(o.el, o.mask);
+        }
+        fit(o, keep[0]);
+        if (keep.length > 1) kick(o);
+        settle(o, false);
+        rubbleDirty = true;
+        return true;
     }
 
     function placeBlock(o) {
@@ -3181,12 +3367,16 @@
             playSound('swing', { volume: 0.8 });
             spawnEffect('slash_wave', player.x, player.y, { facing: player.direction, scale: 0.8 });
             getsugaWave(x, y, tx, ty, {
-                anim: 'gt_wave', scale: 0.9, speed: 13, w: 16,
+                anim: 'gt_wave', scale: 0.9, speed: 13, w: 9,
                 onHit: (hx, hy) => {
                     const v = Math.max(0.4, nearVolume(hx, hy));
                     playSound('boom', { volume: v });
                     spawnEffect('slash_wave', hx, hy + 40, { scale: 1.4, facing: player.direction });
-                    createExplosion(hx, hy, { radius: 200, colors: GETSUGA, smoke: 0.4 });
+                    // A jagged star of a hole bursting out every way
+                    createExplosion(hx, hy, {
+                        radius: 200, colors: GETSUGA, smoke: 0.4,
+                        star: { points: 11 + Math.floor(Math.random() * 4), reach: 1.85 }
+                    });
                     startShockwave(hx, hy, 320, 10);
                 }
             });
@@ -4002,12 +4192,16 @@
     // ==========================================
     // Punch a burning hole, tear paper shards out of it and shake letters loose around it.
     // smoke scales the grey clouds it leaves (a dash carving a trench would bury itself in them)
-    // star: { dir, back, spikes } makes the hole a starburst splayed out toward dir (see addStarburst)
+    // star: { dir, back, spikes } makes the hole a starburst splayed out toward dir (see addStarburst);
+    // star: { points, reach } a jagged star bursting out every way, its longest points reach
+    // times as far as the round hole would go (see addStar)
     function createExplosion(x, y, { radius = 60, colors = ['#4fc3f7', '#ffffff'], smoke = 1, star = null } = {}) {
         const holeR = Math.round(radius * 0.55);
         generated.tear(nearVolume(x, y));
         disturbDebris(x, y, radius * 1.4, 9);
-        const blast = star ? addStarburst(x, y, holeR, star.dir, star.back, star.spikes) : addCrater(x, y, holeR);
+        const blast = !star ? addCrater(x, y, holeR)
+            : star.points ? addStar(x, y, holeR * (star.reach || 1), star.points)
+            : addStarburst(x, y, holeR, star.dir, star.back, star.spikes);
         // What it tore out comes loose a tick later, so a big blast's work is spread over frames
         after(1, () => {
             spawnShards(x, y, holeR, blast.fresh);

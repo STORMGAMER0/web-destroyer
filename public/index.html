@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web Destroyer</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💥</text></svg>">
+<style>
+    :root { --bg: #120a24; --panel: #1d1236; --line: #ffffff22; --text: #f3eefc; --dim: #b9aed3; --accent: #ff9800; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+           font: 15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; display: grid; place-items: center; padding: 24px 16px; }
+    main { width: 100%; max-width: 640px; }
+    h1 { margin: 0 0 4px; font-size: 32px; letter-spacing: .02em; }
+    h1 span { color: var(--accent); }
+    .sub { margin: 0 0 28px; color: var(--dim); }
+    h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }
+    .chars { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 28px; }
+    .chars button { background: var(--panel); color: var(--text); border: 2px solid var(--line); border-radius: 10px;
+                    padding: 14px 10px; font: inherit; font-weight: 600; cursor: pointer; text-align: left; }
+    .chars button:hover { border-color: #ffffff55; }
+    .chars button[aria-pressed="true"] { border-color: var(--accent); background: #2e1d10; }
+    form .row { display: flex; gap: 10px; }
+    input { flex: 1; min-width: 0; background: var(--panel); color: var(--text); border: 2px solid var(--line);
+            border-radius: 10px; padding: 12px 14px; font: inherit; }
+    input:focus { outline: none; border-color: var(--accent); }
+    .go { background: var(--accent); color: #1a0f00; border: 0; border-radius: 10px; padding: 0 22px;
+          font: inherit; font-weight: 700; cursor: pointer; }
+    .go:disabled { opacity: .5; cursor: default; }
+    .examples { margin-top: 8px; font-size: 13px; color: var(--dim); }
+    .examples button { background: none; border: 0; color: var(--dim); text-decoration: underline; cursor: pointer; font: inherit; padding: 0 2px; }
+    .keys { margin-top: 28px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; color: var(--dim); font-size: 14px; }
+    .keys b { color: var(--text); }
+    .error { color: #ff8a80; margin-top: 10px; min-height: 1.5em; }
+
+    /* Loading screen */
+    #loading { position: fixed; inset: 0; background: var(--bg); display: grid; place-items: center; padding: 16px; }
+    #loading[hidden] { display: none; }
+    #loading .box { width: 100%; max-width: 420px; text-align: center; }
+    #loading h2 { font-size: 15px; margin-bottom: 16px; }
+    .bar { height: 10px; background: var(--panel); border-radius: 5px; overflow: hidden; border: 1px solid var(--line); }
+    .bar div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+    #status { margin-top: 12px; color: var(--dim); font-size: 14px; }
+    #loading .error button { margin-top: 12px; background: var(--panel); color: var(--text); border: 1px solid var(--line);
+                             border-radius: 8px; padding: 8px 16px; font: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+    <h1>Web <span>Destroyer</span></h1>
+    <p class="sub">Pick a fighter, pick a website, wreck it.</p>
+
+    <h2>1. Character</h2>
+    <div class="chars" id="chars"></div>
+
+    <h2>2. Website</h2>
+    <form id="form">
+        <div class="row">
+            <input id="url" type="text" inputmode="url" placeholder="example.com" autocomplete="off" spellcheck="false" aria-label="Website address">
+            <button class="go" id="go" type="submit">Destroy</button>
+        </div>
+        <div class="examples">Try:
+            <button type="button" data-url="https://example.com">example.com</button>
+            <button type="button" data-url="https://en.wikipedia.org/wiki/Special:Random">a random Wikipedia page</button>
+            <button type="button" data-url="https://news.ycombinator.com">Hacker News</button>
+        </div>
+        <div class="error" id="formError"></div>
+    </form>
+
+    <div class="keys">
+        <b>A / D</b> run · <b>W / Space</b> jump (hold to fly) · <b>S</b> drop through<br>
+        <b>Number keys</b> or <b>mouse wheel</b> pick a move · <b>Click</b> fire at the cursor · <b>T</b> transform (Goku, Luffy)<br>
+        Settings (sound, background) are in the corner once the game starts.
+    </div>
+</main>
+
+<div id="loading" hidden>
+    <div class="box">
+        <h2 id="loadTitle">Loading</h2>
+        <div class="bar"><div id="bar"></div></div>
+        <div id="status"></div>
+        <div class="error" id="loadError"></div>
+    </div>
+</div>
+
+<script>
+    const CHARACTERS = [
+        { id: 'naruto', name: 'Naruto' },
+        { id: 'sasuke', name: 'Sasuke' },
+        { id: 'goku', name: 'Goku' },
+        { id: 'luffy', name: 'Luffy' },
+        { id: 'natsu', name: 'Natsu' },
+        { id: 'ichigo', name: 'Ichigo' }
+    ];
+
+    // Remembered choices are a convenience only: storage can be blocked
+    const load = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } };
+    const save = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+
+    let chosen = load('wd-char', 'naruto');
+    const charBox = document.getElementById('chars');
+    for (const c of CHARACTERS) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.dataset.id = c.id;
+        b.textContent = c.name;
+        b.addEventListener('click', () => { chosen = c.id; save('wd-char', c.id); mark(); });
+        charBox.appendChild(b);
+    }
+    function mark() {
+        for (const b of charBox.children) b.setAttribute('aria-pressed', String(b.dataset.id === chosen));
+    }
+    if (!CHARACTERS.some(c => c.id === chosen)) chosen = 'naruto';
+    mark();
+
+    const urlInput = document.getElementById('url');
+    urlInput.value = load('wd-url', '');
+    for (const b of document.querySelectorAll('.examples button')) {
+        b.addEventListener('click', () => { urlInput.value = b.dataset.url; urlInput.focus(); });
+    }
+
+    function normalise(raw) {
+        let s = raw.trim();
+        if (!s) return null;
+        if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+        try {
+            const u = new URL(s);
+            return u.hostname.includes('.') || u.hostname === 'localhost' ? u.href : null;
+        } catch { return null; }
+    }
+
+    document.getElementById('form').addEventListener('submit', e => {
+        e.preventDefault();
+        const url = normalise(urlInput.value);
+        const err = document.getElementById('formError');
+        if (!url) { err.textContent = 'That doesn’t look like a website address.'; return; }
+        err.textContent = '';
+        save('wd-url', urlInput.value.trim());
+        start(url, chosen);
+    });
+
+    // ---- Loading: download everything the game needs before it starts, and have the server
+    // capture the website at the same time. The game page then finds it all in the cache.
+    const bar = document.getElementById('bar');
+    const statusEl = document.getElementById('status');
+    const loadError = document.getElementById('loadError');
+
+    async function start(url, char) {
+        const name = CHARACTERS.find(c => c.id === char).name;
+        document.getElementById('loading').hidden = false;
+        document.getElementById('loadTitle').textContent = `Loading ${name}`;
+        loadError.textContent = '';
+
+        let done = 0, total = 5; // engine, character data, sound index, sound pack, website (+ sheets)
+        const step = () => { done++; bar.style.width = Math.round(done / total * 100) + '%'; };
+        const jobs = new Set();
+        let failed = false;
+        const show = () => { if (!failed) statusEl.textContent = [...new Set(jobs)].join(' · ') || 'Starting…'; };
+        const job = async (label, work) => {
+            jobs.add(label); show();
+            try { return await work(); } finally { jobs.delete(label); show(); step(); }
+        };
+        const get = async (path, as) => {
+            const r = await fetch(path);
+            if (!r.ok) throw new Error(`${path} (${r.status})`);
+            return r[as]();
+        };
+        const dir = `/characters/${char}/`;
+
+        try {
+            await Promise.all([
+                job('Capturing the website', async () => {
+                    const r = await fetch('/prepare?url=' + encodeURIComponent(url));
+                    const body = await r.json().catch(() => ({}));
+                    if (!r.ok) throw new Error('Couldn’t load that website: ' + (body.error || r.status));
+                }),
+                job('Game engine', () => get('/game-engine.js', 'text')),
+                job('Sprites', async () => {
+                    const data = await get(dir + char + '.json', 'json');
+                    total += data.sheets.length; show();
+                    // Decode each sheet once now, so the game's first frames don't stall on it
+                    await Promise.all(data.sheets.map(file => job('Sprites', async () => {
+                        const img = new Image();
+                        img.src = dir + file;
+                        await img.decode();
+                    })));
+                }),
+                job('Sounds', () => get(dir + 'sounds/sounds.json', 'json')),
+                job('Sounds', () => get(dir + 'sounds/sounds.bin', 'arrayBuffer'))
+            ]);
+        } catch (err) {
+            // Jobs still running would put their progress back over the error
+            failed = true;
+            loadError.innerHTML = '';
+            loadError.append(err.message, document.createElement('br'));
+            const back = document.createElement('button');
+            back.textContent = 'Back';
+            back.onclick = () => { document.getElementById('loading').hidden = true; bar.style.width = '0'; };
+            loadError.append(back);
+            statusEl.textContent = '';
+            return;
+        }
+        statusEl.textContent = 'Starting…';
+        location.href = `/proxy?url=${encodeURIComponent(url)}&char=${char}`;
+    }
+</script>
+</body>
+</html>
