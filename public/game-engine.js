@@ -1970,6 +1970,19 @@
         const perForm = `${name}_${player.form}`;
         return charData.anims[perForm] ? perForm : name;
     }
+
+    // Flying poses for characters whose jump curls them into a ball (Goku's MUGEN jump tucks
+    // on its second frame): held still, the first frame of the jump going up and of the fall
+    // coming down, and the airborne dash for flying sideways
+    const FLIES = { goku: true };
+    if (FLIES[CHAR_ID]) {
+        for (const name of Object.keys(charData.anims)) {
+            const m = name.match(/^jump_(up|down)(_\d+)?$/);
+            if (!m) continue;
+            const first = charData.anims[name].frames[0];
+            charData.anims[`fly_${m[1]}${m[2] || ''}`] = { loop: true, blend: null, frames: [first] };
+        }
+    }
     player.anim = createAnim(formAnim('jump_down'));
 
     const ROSTER = {
@@ -4348,7 +4361,10 @@
         if (player.x > maxX) player.x = maxX;
 
         if (!player.casting) {
-            if (!player.isGrounded) setPlayerAnim(player.vy < 0 ? 'jump_up' : 'jump_down');
+            if (!player.isGrounded && player.flying && FLIES[CHAR_ID]) {
+                // Holding jump he's flying (rising, or held at the top of the sky); let go, he drops
+                setPlayerAnim(player.vx !== 0 ? 'run' : jumpHeld ? 'fly_up' : 'fly_down');
+            } else if (!player.isGrounded) setPlayerAnim(player.vy < 0 ? 'jump_up' : 'jump_down');
             else if (player.vx !== 0) setPlayerAnim('run');
             else setPlayerAnim('idle');
         }
